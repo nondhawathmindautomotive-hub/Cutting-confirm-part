@@ -18,7 +18,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Kanban Delivery Tracking (GMT+7)")
 
 # ===============================
-# SCAN CONFIRM
+# SCAN / CONFIRM KANBAN
 # ===============================
 st.header("✅ Scan / Confirm Kanban")
 
@@ -27,12 +27,14 @@ def confirm_kanban():
     if kanban == "":
         return
 
-    # ตรวจว่า kanban มีอยู่ใน lot_master ไหม
-    lot = supabase.table("lot_master") \
-        .select("kanban_no, model_name") \
-        .eq("kanban_no", kanban) \
-        .limit(1) \
+    # ตรวจว่า Kanban มีอยู่ใน lot_master
+    lot = (
+        supabase.table("lot_master")
+        .select("kanban_no, model_name")
+        .eq("kanban_no", kanban)
+        .limit(1)
         .execute()
+    )
 
     if not lot.data:
         st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้ใน Lot master")
@@ -41,23 +43,29 @@ def confirm_kanban():
 
     model = lot.data[0]["model_name"]
 
-    # ตรวจว่าถูกส่งไปแล้วหรือยัง
-    exist = supabase.table("kanban_delivery") \
-        .select("id") \
-        .eq("kanban_no", kanban) \
+    # ตรวจว่าเคยส่งแล้วหรือยัง
+    exist = (
+        supabase.table("kanban_delivery")
+        .select("kanban_no")
+        .eq("kanban_no", kanban)
         .execute()
+    )
 
     if exist.data:
         st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งไปแล้ว")
         st.session_state.scan = ""
         return
 
-    # insert (เวลาใช้ default now() = GMT+7 ถ้า DB ตั้ง timezone)
+    # Insert (ใช้เวลาจาก DB = GMT+7)
     supabase.table("kanban_delivery").insert({
-        "kanban_no": kanban
+        "kanban_no": kanban,
+        "delivered_at": "now()"
     }).execute()
 
-    st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย")
+    st.session_state.msg = (
+        "success",
+        f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
+    )
     st.session_state.scan = ""
 
 st.text_input(
@@ -79,31 +87,33 @@ if "msg" in st.session_state:
 st.divider()
 
 # ===============================
-# MODEL STATUS (คงเหลือ)
+# MODEL STATUS SUMMARY
 # ===============================
 st.header("📊 Model Kanban Status")
 
 try:
-    # ดึง lot_master
-    lot_df = pd.DataFrame(
+    lot_data = (
         supabase.table("lot_master")
         .select("model_name, kanban_no")
         .execute()
         .data
     )
 
-    # ดึง kanban_delivery
-    delivery_df = pd.DataFrame(
+    delivery_data = (
         supabase.table("kanban_delivery")
         .select("kanban_no")
         .execute()
         .data
     )
 
-    if not lot_df.empty:
-        total = lot_df.groupby("model_name")["kanban_no"].nunique()
+    df_lot = pd.DataFrame(lot_data)
+    df_del = pd.DataFrame(delivery_data)
+
+    if not df_lot.empty:
+        total = df_lot.groupby("model_name")["kanban_no"].nunique()
+
         sent = (
-            lot_df.merge(delivery_df, on="kanban_no", how="inner")
+            df_lot.merge(df_del, on="kanban_no", how="inner")
             .groupby("model_name")["kanban_no"]
             .nunique()
         )
@@ -114,12 +124,13 @@ try:
         }).fillna(0)
 
         summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
+
         st.dataframe(summary.reset_index(), use_container_width=True)
     else:
-        st.info("ยังไม่มี Lot master")
+        st.info("ยังไม่มีข้อมูล Lot master")
 
 except Exception as e:
-    st.error("❌ สรุป Model ผิดพลาด")
+    st.error("❌ ไม่สามารถสรุป Model ได้")
     st.exception(e)
 
 st.divider()
@@ -146,9 +157,12 @@ if wire_search:
 
 try:
     lot_data = query.execute().data
-    delivery_data = supabase.table("kanban_delivery").select(
-        "kanban_no, created_at"
-    ).execute().data
+    delivery_data = (
+        supabase.table("kanban_delivery")
+        .select("kanban_no, delivered_at")
+        .execute()
+        .data
+    )
 
     df_lot = pd.DataFrame(lot_data)
     df_del = pd.DataFrame(delivery_data)
@@ -164,7 +178,7 @@ try:
             "kanban_no": "Kanban no.",
             "model_name": "Model",
             "wire_number": "Wire number",
-            "created_at": "Delivered at (GMT+7)"
+            "delivered_at": "Delivered at (GMT+7)"
         }, inplace=True)
 
         st.dataframe(df, use_container_width=True)
@@ -174,4 +188,3 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
-
