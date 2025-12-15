@@ -3,81 +3,81 @@ from supabase import create_client
 import pandas as pd
 
 # ===============================
-# CONNECT SUPABASE
+# SUPABASE CONNECTION
 # ===============================
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
 
-st.set_page_config(page_title="Kanban Scan", layout="centered")
-st.title("📦 Kanban Scan Confirm")
+st.set_page_config(page_title="Kanban Delivery Confirm", layout="centered")
+st.title("📦 Kanban Scan Confirm (CUTTING ➜ ASSEMBLY)")
 
 # ===============================
-# FUNCTION : PROCESS SCAN
+# PROCESS SCAN
 # ===============================
 def process_scan():
-    kanban = st.session_state.scan.strip()
-    if kanban == "":
+    kanban_no = st.session_state.scan.strip()
+    if kanban_no == "":
         return
 
-    # ดึง Harness ของ Kanban นี้
+    # 1) ดึง Harness + STD จากไฟล์ Test Kanban (kanban_harness)
     kh = supabase.table("kanban_harness") \
-        .select("*") \
-        .eq("kanban_no", kanban) \
+        .select("harness_name, std_qty") \
+        .eq("kanban_no", kanban_no) \
         .execute()
 
     if not kh.data:
-        st.session_state.error = "❌ ไม่พบ Kanban นี้"
+        st.session_state.error = "❌ ไม่พบ Kanban นี้ใน Master"
         st.session_state.scan = ""
         return
 
     result = []
 
-    for h in kh.data:
-        harness = h["harness_name"]
-        std = h["std_qty"]
+    for row in kh.data:
+        harness = row["harness_name"]
+        std_qty = row["std_qty"]
 
+        # 2) นับจำนวนที่ส่งแล้ว
         sent = supabase.table("delivery_confirm") \
             .select("id", count="exact") \
-            .eq("kanban_no", kanban) \
+            .eq("kanban_no", kanban_no) \
             .eq("harness_name", harness) \
             .execute() \
             .count
 
-        if sent < std:
-            # บันทึกการส่ง 1 ชิ้น
+        # 3) Insert ถ้ายังไม่ครบ STD
+        if sent < std_qty:
             supabase.table("delivery_confirm").insert({
-                "kanban_no": kanban,
+                "kanban_no": kanban_no,
                 "harness_name": harness
             }).execute()
-
             sent += 1
 
-        remain = std - sent
+        remain = std_qty - sent
 
         result.append({
             "Harness": harness,
-            "STD": std,
+            "STD": std_qty,
             "ส่งแล้ว": sent,
             "คงเหลือ": remain
         })
 
     st.session_state.result = result
-    st.session_state.last_kanban = kanban
+    st.session_state.last_kanban = kanban_no
     st.session_state.scan = ""
 
 # ===============================
 # SCAN INPUT
 # ===============================
 st.text_input(
-    "Scan Kanban No.",
+    "Scan Kanban No. (Cutting)",
     key="scan",
     on_change=process_scan
 )
 
 # ===============================
-# MESSAGE
+# ERROR MESSAGE
 # ===============================
 if "error" in st.session_state:
     st.error(st.session_state.error)
@@ -88,7 +88,7 @@ if "error" in st.session_state:
 # ===============================
 if "result" in st.session_state:
     df = pd.DataFrame(st.session_state.result)
-    st.subheader("📊 สถานะการส่ง")
+    st.subheader("📊 สถานะการส่ง (จาก Test Kanban)")
     st.dataframe(df, use_container_width=True)
 
 st.divider()
