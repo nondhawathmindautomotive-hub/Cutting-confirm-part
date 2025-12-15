@@ -14,7 +14,7 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.title(" Kanban Delivery Tracking-MIND Automotive Parts")
+st.title("📦 Kanban Delivery Tracking (GMT+7)")
 
 # ===============================
 # SIDEBAR MENU
@@ -24,7 +24,8 @@ mode = st.sidebar.radio(
     [
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
-        "🔍 Tracking Search"
+        "🔍 Tracking Search",
+        "🔐📤 Upload Lot Master (Planner)"
     ]
 )
 
@@ -40,7 +41,6 @@ if mode == "✅ Scan Kanban":
         if kanban == "":
             return
 
-        # ตรวจใน lot_master
         lot = (
             supabase.table("lot_master")
             .select("kanban_no, model_name")
@@ -56,7 +56,6 @@ if mode == "✅ Scan Kanban":
 
         model = lot.data[0]["model_name"]
 
-        # ตรวจซ้ำ
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -69,7 +68,6 @@ if mode == "✅ Scan Kanban":
             st.session_state.scan = ""
             return
 
-        # INSERT (ใช้เวลา DB = GMT+7)
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
             "model_name": model
@@ -89,59 +87,47 @@ if mode == "✅ Scan Kanban":
 
     if "msg" in st.session_state:
         t, m = st.session_state.msg
-        if t == "success":
-            st.success(m)
-        elif t == "warning":
-            st.warning(m)
-        else:
-            st.error(m)
+        {"success": st.success, "warning": st.warning, "error": st.error}[t](m)
         del st.session_state.msg
 
 # ==================================================
-# 2) MODEL KANBAN STATUS
+# 2) MODEL STATUS
 # ==================================================
 elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    try:
-        lot_df = pd.DataFrame(
-            supabase.table("lot_master")
-            .select("model_name, kanban_no")
-            .execute()
-            .data
+    lot_df = pd.DataFrame(
+        supabase.table("lot_master")
+        .select("model_name, kanban_no")
+        .execute()
+        .data
+    )
+
+    delivery_df = pd.DataFrame(
+        supabase.table("kanban_delivery")
+        .select("kanban_no")
+        .execute()
+        .data
+    )
+
+    if not lot_df.empty:
+        total = lot_df.groupby("model_name")["kanban_no"].nunique()
+        sent = (
+            lot_df.merge(delivery_df, on="kanban_no", how="inner")
+            .groupby("model_name")["kanban_no"]
+            .nunique()
         )
 
-        delivery_df = pd.DataFrame(
-            supabase.table("kanban_delivery")
-            .select("kanban_no")
-            .execute()
-            .data
-        )
+        summary = pd.DataFrame({
+            "Total Kanban": total,
+            "Sent": sent
+        }).fillna(0)
 
-        if not lot_df.empty:
-            total = lot_df.groupby("model_name")["kanban_no"].nunique()
-
-            sent = (
-                lot_df.merge(delivery_df, on="kanban_no", how="inner")
-                .groupby("model_name")["kanban_no"]
-                .nunique()
-            )
-
-            summary = pd.DataFrame({
-                "Total Kanban": total,
-                "Sent": sent
-            }).fillna(0)
-
-            summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
-
-            st.dataframe(summary.reset_index(), use_container_width=True)
-        else:
-            st.info("ยังไม่มีข้อมูล Lot master")
-
-    except Exception as e:
-        st.error("❌ สรุปข้อมูลผิดพลาด")
-        st.exception(e)
+        summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
+        st.dataframe(summary.reset_index(), use_container_width=True)
+    else:
+        st.info("ยังไม่มี Lot master")
 
 elif mode == "🔍 Tracking Search":
 
@@ -202,3 +188,53 @@ elif mode == "🔍 Tracking Search":
     except Exception as e:
         st.error("❌ Tracking error")
         st.exception(e)
+
+# ==================================================
+# 4) UPLOAD LOT MASTER (PLANNER)
+# ==================================================
+elif mode == "🔐📤 Upload Lot Master (Planner)":
+
+    st.header("🔐 Upload Lot Master (Planner Only)")
+
+    password = st.text_input("Planner Password", type="password")
+
+    if password != "planner":
+        st.warning("🔒 โหมดนี้สำหรับ Planner เท่านั้น")
+        st.stop()
+
+    st.success("✅ Authorized")
+
+    file = st.file_uploader(
+        "Upload Lot Master (CSV / Excel)",
+        type=["csv", "xlsx"]
+    )
+
+    if file:
+        if file.name.endswith(".csv"):
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+
+        st.subheader("📋 Preview")
+        st.dataframe(df.head(), use_container_width=True)
+
+        required_cols = {
+            "kanban_no",
+            "model_name",
+            "wire_number",
+            "subpackage_number"
+        }
+
+        if not required_cols.issubset(df.columns):
+            st.error(f"❌ ต้องมี column: {', '.join(required_cols)}")
+            st.stop()
+
+        if st.button("🚀 Upload to Supabase"):
+            data = df[list(required_cols)].dropna().to_dict("records")
+
+            supabase.table("lot_master").insert(
+                data,
+                count="exact"
+            ).execute()
+
+            st.success(f"✅ Upload สำเร็จ {len(data)} records")
