@@ -143,34 +143,37 @@ elif mode == "📊 Model Kanban Status":
         st.error("❌ สรุปข้อมูลผิดพลาด")
         st.exception(e)
 
-# ==================================================
-# 3) TRACKING SEARCH
-# ==================================================
 elif mode == "🔍 Tracking Search":
 
     st.header("🔍 Tracking Search")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
-    model_search = col1.text_input("ค้นหาด้วย Model name")
-    wire_search = col2.text_input("ค้นหาด้วย Wire number")
-    subpackage_search = col3.text_input("ค้นหาด้วย Subpackage number")
+    model = col1.text_input("Model name")
+    wire = col2.text_input("Wire number")
+    subpackage = col3.text_input("Subpackage number")
+    lot = col4.text_input("Lot (เช่น 251201)")
 
     query = supabase.table("lot_master").select(
         "kanban_no, model_name, wire_number, subpackage_number"
     )
 
-    if model_search:
-        query = query.ilike("model_name", f"%{model_search}%")
+    if model:
+        query = query.ilike("model_name", f"%{model}%")
 
-    if wire_search:
-        query = query.ilike("wire_number", f"%{wire_search}%")
+    if wire:
+        query = query.ilike("wire_number", f"%{wire}%")
 
-    if subpackage_search:
-        query = query.ilike("subpackage_number", f"%{subpackage_search}%")
+    if subpackage:
+        query = query.ilike("subpackage_number", f"%{subpackage}%")
+
+    # 🔥 SEARCH BY LOT (kanban suffix)
+    if lot:
+        query = query.ilike("kanban_no", f"%-{lot}%")
 
     try:
         lot_data = query.execute().data
+
         delivery_data = (
             supabase.table("kanban_delivery")
             .select("kanban_no, delivered_at")
@@ -199,6 +202,3 @@ elif mode == "🔍 Tracking Search":
     except Exception as e:
         st.error("❌ Tracking error")
         st.exception(e)
-
-
-
