@@ -210,7 +210,7 @@ elif mode == "🔍 Tracking Search":
 # ==================================================
 # 4) UPLOAD LOT MASTER (PLANNER)
 # ==================================================
-elif mode == "🔐📤 Upload Lot Master (Planner)":
+elif mode == "🔐Upload Lot Master":
 
     st.header("🔐 Upload Lot Master (Planner Only)")
 
@@ -247,7 +247,7 @@ elif mode == "🔐📤 Upload Lot Master (Planner)":
             st.error(f"❌ ต้องมี column: {', '.join(required_cols)}")
             st.stop()
 
-        if st.button("🚀 Upload to Supabase"):
+        if st.button("Upload to Data base"):
             data = (
                 df[list(required_cols)]
                 .dropna(subset=["kanban_no"])
@@ -260,3 +260,4 @@ elif mode == "🔐📤 Upload Lot Master (Planner)":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
