@@ -3,6 +3,14 @@ from supabase import create_client
 import pandas as pd
 
 # ===============================
+# CONFIG
+# ===============================
+st.set_page_config(
+    page_title="Kanban Delivery Tracking",
+    layout="wide"
+)
+
+# ===============================
 # SUPABASE CONNECTION
 # ===============================
 supabase = create_client(
@@ -10,100 +18,125 @@ supabase = create_client(
     st.secrets["SUPABASE_KEY"]
 )
 
-st.set_page_config(page_title="Kanban Delivery Confirm", layout="centered")
-st.title("📦 Kanban Scan Confirm (CUTTING ➜ ASSEMBLY)")
+st.title("📦 Kanban Delivery Tracking (GMT+7)")
 
 # ===============================
-# PROCESS SCAN
+# SCAN CONFIRM SECTION
 # ===============================
-def process_scan():
-    kanban_no = st.session_state.scan.strip()
-    if kanban_no == "":
+st.header("✅ Scan / Confirm Kanban")
+
+def confirm_kanban():
+    kanban = st.session_state.kanban_scan.strip()
+    if kanban == "":
         return
 
-    # 1) ดึง Harness + STD จากไฟล์ Test Kanban (kanban_harness)
-    kh = supabase.table("kanban_harness") \
-        .select("harness_name, std_qty") \
-        .eq("kanban_no", kanban_no) \
+    # ดึงข้อมูลจาก lot_master
+    lot = supabase.table("lot_master") \
+        .select("kanban_no, model_name") \
+        .eq("kanban_no", kanban) \
+        .limit(1) \
         .execute()
 
-    if not kh.data:
-        st.session_state.error = "❌ ไม่พบ Kanban นี้ใน Master"
-        st.session_state.scan = ""
+    if not lot.data:
+        st.session_state.error = "❌ ไม่พบ Kanban นี้ใน Lot master"
+        st.session_state.kanban_scan = ""
         return
 
-    result = []
+    model = lot.data[0]["model_name"]
 
-    for row in kh.data:
-        harness = row["harness_name"]
-        std_qty = row["std_qty"]
+    # เช็คว่าส่งไปแล้วหรือยัง
+    exist = supabase.table("kanban_delivery") \
+        .select("id") \
+        .eq("kanban_no", kanban) \
+        .execute()
 
-        # 2) นับจำนวนที่ส่งแล้ว
-        sent = supabase.table("delivery_confirm") \
-            .select("id", count="exact") \
-            .eq("kanban_no", kanban_no) \
-            .eq("harness_name", harness) \
-            .execute() \
-            .count
+    if exist.data:
+        st.session_state.error = "⚠️ Kanban นี้ถูกส่งไปแล้ว"
+        st.session_state.kanban_scan = ""
+        return
 
-        # 3) Insert ถ้ายังไม่ครบ STD
-        if sent < std_qty:
-            supabase.table("delivery_confirm").insert({
-                "kanban_no": kanban_no,
-                "harness_name": harness
-            }).execute()
-            sent += 1
+    # Insert (timestamp = GMT+7 จาก database)
+    supabase.table("kanban_delivery").insert({
+        "kanban_no": kanban,
+        "model_name": model
+    }).execute()
 
-        remain = std_qty - sent
+    st.session_state.success = f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
+    st.session_state.kanban_scan = ""
 
-        result.append({
-            "Harness": harness,
-            "STD": std_qty,
-            "ส่งแล้ว": sent,
-            "คงเหลือ": remain
-        })
-
-    st.session_state.result = result
-    st.session_state.last_kanban = kanban_no
-    st.session_state.scan = ""
-
-# ===============================
-# SCAN INPUT
-# ===============================
 st.text_input(
-    "Scan Kanban No. (Cutting)",
-    key="scan",
-    on_change=process_scan
+    "Scan Kanban No.",
+    key="kanban_scan",
+    on_change=confirm_kanban
 )
 
-# ===============================
-# ERROR MESSAGE
-# ===============================
 if "error" in st.session_state:
     st.error(st.session_state.error)
     del st.session_state.error
 
-# ===============================
-# RESULT TABLE
-# ===============================
-if "result" in st.session_state:
-    df = pd.DataFrame(st.session_state.result)
-    st.subheader("📊 สถานะการส่ง (จาก Test Kanban)")
-    st.dataframe(df, use_container_width=True)
+if "success" in st.session_state:
+    st.success(st.session_state.success)
+    del st.session_state.success
 
 st.divider()
 
 # ===============================
-# TRACKING HISTORY
+# MODEL STATUS SUMMARY
 # ===============================
-if "last_kanban" in st.session_state:
-    track = supabase.table("delivery_confirm") \
-        .select("harness_name, scan_time") \
-        .eq("kanban_no", st.session_state.last_kanban) \
-        .order("scan_time") \
-        .execute()
+st.header("📊 Model Kanban Status")
 
-    if track.data:
-        df2 = pd.DataFrame(track.data)
-        st.subheader("🕒 Tracking History")
-        st.dataframe(df2, use_container_width=True)
+status = supabase.rpc("model_kanban_status").execute()
+
+if status.data:
+    df_status = pd.DataFrame(status.data)
+    st.dataframe(df_status, use_container_width=True)
+else:
+    st.info("ยังไม่มีข้อมูลสรุป")
+
+st.divider()
+
+# ===============================
+# TRACKING SEARCH
+# ===============================
+st.header("🔍 Tracking Search")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    model_search = st.text_input("ค้นหาด้วย Model name")
+
+with col2:
+    wire_search = st.text_input("ค้นหาด้วย Wire number")
+
+query = supabase.table("lot_master") \
+    .select("""
+        kanban_no,
+        model_name,
+        wire_number,
+        kanban_delivery(delivered_at)
+    """, count="exact")
+
+if model_search:
+    query = query.ilike("model_name", f"%{model_search}%")
+
+if wire_search:
+    query = query.ilike("wire_number", f"%{wire_search}%")
+
+result = query.execute()
+
+if result.data:
+    rows = []
+    for r in result.data:
+        rows.append({
+            "Kanban no.": r["kanban_no"],
+            "Model": r["model_name"],
+            "Wire number": r["wire_number"],
+            "Delivered at (GMT+7)": (
+                r["kanban_delivery"][0]["delivered_at"]
+                if r.get("kanban_delivery") else None
+            )
+        })
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+else:
+    st.info("ไม่พบข้อมูล")
