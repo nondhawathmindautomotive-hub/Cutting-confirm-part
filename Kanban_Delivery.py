@@ -103,7 +103,12 @@ if mode == "✅ Scan Kanban":
 # ==================================================
 elif mode == "📊 Model Kanban Status":
 
-    st.header("📊 Model Kanban Status")
+    st.header("📊 Model Kanban Status (แยกตาม Lot)")
+
+    # 🔍 FILTER
+    col1, col2 = st.columns(2)
+    model_filter = col1.text_input("ค้นหา Model")
+    lot_filter = col2.text_input("ค้นหา Lot (เช่น 251201)")
 
     try:
         # ดึง lot_master
@@ -126,19 +131,32 @@ elif mode == "📊 Model Kanban Status":
             st.info("ยังไม่มีข้อมูล Lot master")
             st.stop()
 
-        # 🔥 แยก Lot จาก kanban_no (1612951-251201)
+        # แยก Lot จาก Kanban
         lot_df["lot"] = lot_df["kanban_no"].str.split("-").str[-1]
 
+        # 🔍 FILTER DATA
+        if model_filter:
+            lot_df = lot_df[
+                lot_df["model_name"]
+                .str.contains(model_filter, case=False, na=False)
+            ]
+
+        if lot_filter:
+            lot_df = lot_df[
+                lot_df["lot"]
+                .str.contains(lot_filter, case=False, na=False)
+            ]
+
+        # เตรียม delivery
         if not delivery_df.empty:
             delivery_df["sent"] = 1
         else:
             delivery_df = pd.DataFrame(columns=["kanban_no", "sent"])
 
-        # merge
         df = lot_df.merge(delivery_df, on="kanban_no", how="left")
         df["sent"] = df["sent"].fillna(0)
 
-        # group by Model + Lot
+        # สรุป
         summary = (
             df.groupby(["model_name", "lot"])
             .agg(
@@ -150,7 +168,6 @@ elif mode == "📊 Model Kanban Status":
 
         summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
-        # rename สำหรับแสดงผล
         summary.rename(columns={
             "model_name": "Model",
             "lot": "Lot",
@@ -279,6 +296,7 @@ elif mode == "🔐📤 Upload Lot Master ":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
 
 
 
