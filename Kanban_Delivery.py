@@ -147,7 +147,7 @@ if wire_search:
 try:
     lot_data = query.execute().data
     delivery_data = supabase.table("kanban_delivery").select(
-        "kanban_no, scan_time"
+        "kanban_no, created_at"
     ).execute().data
 
     df_lot = pd.DataFrame(lot_data)
@@ -164,7 +164,7 @@ try:
             "kanban_no": "Kanban no.",
             "model_name": "Model",
             "wire_number": "Wire number",
-            "scan_time": "Delivered at (GMT+7)"
+            "created_at": "Delivered at (GMT+7)"
         }, inplace=True)
 
         st.dataframe(df, use_container_width=True)
@@ -174,3 +174,4 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
+
