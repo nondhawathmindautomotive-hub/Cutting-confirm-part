@@ -2,7 +2,9 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 
-# ===== CONNECT SUPABASE =====
+# ===============================
+# CONNECT SUPABASE
+# ===============================
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
@@ -11,83 +13,97 @@ supabase = create_client(
 st.set_page_config(page_title="Kanban Scan", layout="centered")
 st.title("📦 Kanban Scan Confirm")
 
-# ===== SCAN FUNCTION =====
+# ===============================
+# FUNCTION : PROCESS SCAN
+# ===============================
 def process_scan():
-    kb = st.session_state.scan.strip()
-    if kb == "":
+    kanban = st.session_state.scan.strip()
+    if kanban == "":
         return
 
-    # หา Kanban
-    master = supabase.table("master_kanban") \
+    # ดึง Harness ของ Kanban นี้
+    kh = supabase.table("kanban_harness") \
         .select("*") \
-        .eq("kanban_no", kb) \
+        .eq("kanban_no", kanban) \
         .execute()
 
-    if not master.data:
+    if not kh.data:
         st.session_state.error = "❌ ไม่พบ Kanban นี้"
         st.session_state.scan = ""
         return
 
-    mk = master.data[0]
+    result = []
 
-    # นับจำนวนที่ส่งแล้ว
-    used = supabase.table("delivery_confirm") \
-        .select("id", count="exact") \
-        .eq("kanban_no", kb) \
-        .execute() \
-        .count
+    for h in kh.data:
+        harness = h["harness_name"]
+        std = h["std_qty"]
 
-    # เช็คว่าส่งครบหรือยัง
-    if used >= mk["std_qty"]:
-        st.session_state.error = "❌ Kanban นี้ส่งครบแล้ว"
-        st.session_state.scan = ""
-        return
+        sent = supabase.table("delivery_confirm") \
+            .select("id", count="exact") \
+            .eq("kanban_no", kanban) \
+            .eq("harness_name", harness) \
+            .execute() \
+            .count
 
-    # บันทึกการ Scan
-    supabase.table("delivery_confirm").insert({
-        "kanban_no": kb,
-        "part_no": mk["part_no"],
-        "harness_group": mk["harness_group"]
-    }).execute()
+        if sent < std:
+            # บันทึกการส่ง 1 ชิ้น
+            supabase.table("delivery_confirm").insert({
+                "kanban_no": kanban,
+                "harness_name": harness
+            }).execute()
 
-    remaining = mk["std_qty"] - (used + 1)
-    st.session_state.success = (
-        f"KANBAN : {kb}\n"
-        f"{mk['harness_group']}\n"
-        f"ส่งแล้ว {used + 1} เหลือ {remaining}"
-    )
+            sent += 1
 
-    st.session_state.last_kanban = kb
+        remain = std - sent
+
+        result.append({
+            "Harness": harness,
+            "STD": std,
+            "ส่งแล้ว": sent,
+            "คงเหลือ": remain
+        })
+
+    st.session_state.result = result
+    st.session_state.last_kanban = kanban
     st.session_state.scan = ""
 
-# ===== SCAN INPUT =====
+# ===============================
+# SCAN INPUT
+# ===============================
 st.text_input(
     "Scan Kanban No.",
     key="scan",
     on_change=process_scan
 )
 
-# ===== MESSAGE =====
+# ===============================
+# MESSAGE
+# ===============================
 if "error" in st.session_state:
     st.error(st.session_state.error)
     del st.session_state.error
 
-if "success" in st.session_state:
-    st.success(st.session_state.success)
+# ===============================
+# RESULT TABLE
+# ===============================
+if "result" in st.session_state:
+    df = pd.DataFrame(st.session_state.result)
+    st.subheader("📊 สถานะการส่ง")
+    st.dataframe(df, use_container_width=True)
 
 st.divider()
 
-# ===== TRACKING TABLE =====
+# ===============================
+# TRACKING HISTORY
+# ===============================
 if "last_kanban" in st.session_state:
-    kb = st.session_state.last_kanban
-
     track = supabase.table("delivery_confirm") \
-        .select("scan_time") \
-        .eq("kanban_no", kb) \
+        .select("harness_name, scan_time") \
+        .eq("kanban_no", st.session_state.last_kanban) \
         .order("scan_time") \
         .execute()
 
     if track.data:
-        df = pd.DataFrame(track.data)
-        st.subheader("📊 Tracking History")
-        st.dataframe(df, use_container_width=True)
+        df2 = pd.DataFrame(track.data)
+        st.subheader("🕒 Tracking History")
+        st.dataframe(df2, use_container_width=True)
