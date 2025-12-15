@@ -103,7 +103,7 @@ if mode == "✅ Scan Kanban":
 # ==================================================
 elif mode == "📊 Model Kanban Status":
 
-    st.header("📊 Model Kanban Status (แยกตาม Lot)")
+    st.header("📊 Model Kanban Status")
 
     # 🔍 FILTER
     col1, col2 = st.columns(2)
@@ -296,6 +296,7 @@ elif mode == "🔐📤 Upload Lot Master ":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
 
 
 
