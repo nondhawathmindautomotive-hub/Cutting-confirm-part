@@ -58,8 +58,7 @@ def confirm_kanban():
 
     # Insert (ใช้เวลาจาก DB = GMT+7)
     supabase.table("kanban_delivery").insert({
-        "kanban_no": kanban,
-        "delivered_at": "now()"
+        "kanban_no": kanban
     }).execute()
 
     st.session_state.msg = (
@@ -188,3 +187,4 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
+
