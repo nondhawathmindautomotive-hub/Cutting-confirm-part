@@ -103,9 +103,10 @@ if mode == "✅ Scan Kanban":
 # ==================================================
 elif mode == "📊 Model Kanban Status":
 
-    st.header("📊 Model Kanban Status")
+    st.header("📊 Model Kanban Status (แยกตาม Lot)")
 
     try:
+        # ดึง lot_master
         lot_df = pd.DataFrame(
             supabase.table("lot_master")
             .select("model_name, kanban_no")
@@ -113,6 +114,7 @@ elif mode == "📊 Model Kanban Status":
             .data
         )
 
+        # ดึง kanban_delivery
         delivery_df = pd.DataFrame(
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -120,28 +122,45 @@ elif mode == "📊 Model Kanban Status":
             .data
         )
 
-        if not lot_df.empty:
-            total = lot_df.groupby("model_name")["kanban_no"].nunique()
-
-            sent = (
-                lot_df.merge(delivery_df, on="kanban_no", how="inner")
-                .groupby("model_name")["kanban_no"]
-                .nunique()
-            )
-
-            summary = pd.DataFrame({
-                "Total Kanban": total,
-                "Sent": sent
-            }).fillna(0)
-
-            summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
-
-            st.dataframe(summary.reset_index(), use_container_width=True)
-        else:
+        if lot_df.empty:
             st.info("ยังไม่มีข้อมูล Lot master")
+            st.stop()
+
+        # 🔥 แยก Lot จาก kanban_no (1612951-251201)
+        lot_df["lot"] = lot_df["kanban_no"].str.split("-").str[-1]
+
+        if not delivery_df.empty:
+            delivery_df["sent"] = 1
+        else:
+            delivery_df = pd.DataFrame(columns=["kanban_no", "sent"])
+
+        # merge
+        df = lot_df.merge(delivery_df, on="kanban_no", how="left")
+        df["sent"] = df["sent"].fillna(0)
+
+        # group by Model + Lot
+        summary = (
+            df.groupby(["model_name", "lot"])
+            .agg(
+                Total_Kanban=("kanban_no", "nunique"),
+                Sent=("sent", "sum")
+            )
+            .reset_index()
+        )
+
+        summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
+
+        # rename สำหรับแสดงผล
+        summary.rename(columns={
+            "model_name": "Model",
+            "lot": "Lot",
+            "Total_Kanban": "Total Kanban"
+        }, inplace=True)
+
+        st.dataframe(summary, use_container_width=True)
 
     except Exception as e:
-        st.error("❌ สรุปข้อมูลผิดพลาด")
+        st.error("❌ สรุป Model + Lot ผิดพลาด")
         st.exception(e)
 
 # ==================================================
@@ -260,5 +279,6 @@ elif mode == "🔐📤 Upload Lot Master ":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
 
 
