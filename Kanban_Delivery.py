@@ -60,7 +60,7 @@ def confirm_kanban():
     supabase.table("kanban_delivery").insert({
         "kanban_no": kanban
     }).execute()
-
+    
     st.session_state.msg = (
         "success",
         f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
@@ -187,4 +187,5 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
+
 
