@@ -25,7 +25,7 @@ mode = st.sidebar.radio(
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
-        "🔐 Upload Lot Master"
+        "🔐📤 Upload Lot Master (Planner)"
     ]
 )
 
@@ -210,7 +210,7 @@ elif mode == "🔍 Tracking Search":
 # ==================================================
 # 4) UPLOAD LOT MASTER (PLANNER)
 # ==================================================
-elif mode == "🔐Upload Lot Master":
+elif mode == "🔐📤 Upload Lot Master (Planner)":
 
     st.header("🔐 Upload Lot Master (Planner Only)")
 
@@ -247,7 +247,7 @@ elif mode == "🔐Upload Lot Master":
             st.error(f"❌ ต้องมี column: {', '.join(required_cols)}")
             st.stop()
 
-        if st.button("Upload to Data base"):
+        if st.button("🚀 Upload to Data Base"):
             data = (
                 df[list(required_cols)]
                 .dropna(subset=["kanban_no"])
@@ -260,5 +260,3 @@ elif mode == "🔐Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
-
-
