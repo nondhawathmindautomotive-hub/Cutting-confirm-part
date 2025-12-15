@@ -10,27 +10,24 @@ st.set_page_config(
     layout="wide"
 )
 
-# ===============================
-# SUPABASE CONNECTION
-# ===============================
-supabase = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"]
-)
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.title("📦 Kanban Delivery Tracking (GMT+7)")
 
 # ===============================
-# SCAN CONFIRM SECTION
+# SCAN CONFIRM
 # ===============================
 st.header("✅ Scan / Confirm Kanban")
 
 def confirm_kanban():
-    kanban = st.session_state.kanban_scan.strip()
+    kanban = st.session_state.scan.strip()
     if kanban == "":
         return
 
-    # ดึงข้อมูลจาก lot_master
+    # ตรวจว่า kanban มีอยู่ใน lot_master ไหม
     lot = supabase.table("lot_master") \
         .select("kanban_no, model_name") \
         .eq("kanban_no", kanban) \
@@ -38,60 +35,92 @@ def confirm_kanban():
         .execute()
 
     if not lot.data:
-        st.session_state.error = "❌ ไม่พบ Kanban นี้ใน Lot master"
-        st.session_state.kanban_scan = ""
+        st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้ใน Lot master")
+        st.session_state.scan = ""
         return
 
     model = lot.data[0]["model_name"]
 
-    # เช็คว่าส่งไปแล้วหรือยัง
+    # ตรวจว่าถูกส่งไปแล้วหรือยัง
     exist = supabase.table("kanban_delivery") \
         .select("id") \
         .eq("kanban_no", kanban) \
         .execute()
 
     if exist.data:
-        st.session_state.error = "⚠️ Kanban นี้ถูกส่งไปแล้ว"
-        st.session_state.kanban_scan = ""
+        st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งไปแล้ว")
+        st.session_state.scan = ""
         return
 
-    # Insert (timestamp = GMT+7 จาก database)
+    # insert (เวลาใช้ default now() = GMT+7 ถ้า DB ตั้ง timezone)
     supabase.table("kanban_delivery").insert({
-        "kanban_no": kanban,
-        "model_name": model
+        "kanban_no": kanban
     }).execute()
 
-    st.session_state.success = f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
-    st.session_state.kanban_scan = ""
+    st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย")
+    st.session_state.scan = ""
 
 st.text_input(
     "Scan Kanban No.",
-    key="kanban_scan",
+    key="scan",
     on_change=confirm_kanban
 )
 
-if "error" in st.session_state:
-    st.error(st.session_state.error)
-    del st.session_state.error
-
-if "success" in st.session_state:
-    st.success(st.session_state.success)
-    del st.session_state.success
+if "msg" in st.session_state:
+    t, m = st.session_state.msg
+    if t == "success":
+        st.success(m)
+    elif t == "warning":
+        st.warning(m)
+    else:
+        st.error(m)
+    del st.session_state.msg
 
 st.divider()
 
 # ===============================
-# MODEL STATUS SUMMARY
+# MODEL STATUS (คงเหลือ)
 # ===============================
 st.header("📊 Model Kanban Status")
 
-status = supabase.rpc("model_kanban_status").execute()
+try:
+    # ดึง lot_master
+    lot_df = pd.DataFrame(
+        supabase.table("lot_master")
+        .select("model_name, kanban_no")
+        .execute()
+        .data
+    )
 
-if status.data:
-    df_status = pd.DataFrame(status.data)
-    st.dataframe(df_status, use_container_width=True)
-else:
-    st.info("ยังไม่มีข้อมูลสรุป")
+    # ดึง kanban_delivery
+    delivery_df = pd.DataFrame(
+        supabase.table("kanban_delivery")
+        .select("kanban_no")
+        .execute()
+        .data
+    )
+
+    if not lot_df.empty:
+        total = lot_df.groupby("model_name")["kanban_no"].nunique()
+        sent = (
+            lot_df.merge(delivery_df, on="kanban_no", how="inner")
+            .groupby("model_name")["kanban_no"]
+            .nunique()
+        )
+
+        summary = pd.DataFrame({
+            "Total Kanban": total,
+            "Sent": sent
+        }).fillna(0)
+
+        summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
+        st.dataframe(summary.reset_index(), use_container_width=True)
+    else:
+        st.info("ยังไม่มี Lot master")
+
+except Exception as e:
+    st.error("❌ สรุป Model ผิดพลาด")
+    st.exception(e)
 
 st.divider()
 
@@ -102,19 +131,12 @@ st.header("🔍 Tracking Search")
 
 col1, col2 = st.columns(2)
 
-with col1:
-    model_search = st.text_input("ค้นหาด้วย Model name")
+model_search = col1.text_input("ค้นหาด้วย Model name")
+wire_search = col2.text_input("ค้นหาด้วย Wire number")
 
-with col2:
-    wire_search = st.text_input("ค้นหาด้วย Wire number")
-
-query = supabase.table("lot_master") \
-    .select("""
-        kanban_no,
-        model_name,
-        wire_number,
-        kanban_delivery(delivered_at)
-    """, count="exact")
+query = supabase.table("lot_master").select(
+    "kanban_no, model_name, wire_number"
+)
 
 if model_search:
     query = query.ilike("model_name", f"%{model_search}%")
@@ -122,21 +144,33 @@ if model_search:
 if wire_search:
     query = query.ilike("wire_number", f"%{wire_search}%")
 
-result = query.execute()
+try:
+    lot_data = query.execute().data
+    delivery_data = supabase.table("kanban_delivery").select(
+        "kanban_no, scan_time"
+    ).execute().data
 
-if result.data:
-    rows = []
-    for r in result.data:
-        rows.append({
-            "Kanban no.": r["kanban_no"],
-            "Model": r["model_name"],
-            "Wire number": r["wire_number"],
-            "Delivered at (GMT+7)": (
-                r["kanban_delivery"][0]["delivered_at"]
-                if r.get("kanban_delivery") else None
-            )
-        })
+    df_lot = pd.DataFrame(lot_data)
+    df_del = pd.DataFrame(delivery_data)
 
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
-else:
-    st.info("ไม่พบข้อมูล")
+    if not df_lot.empty:
+        df = df_lot.merge(
+            df_del,
+            on="kanban_no",
+            how="left"
+        )
+
+        df.rename(columns={
+            "kanban_no": "Kanban no.",
+            "model_name": "Model",
+            "wire_number": "Wire number",
+            "scan_time": "Delivered at (GMT+7)"
+        }, inplace=True)
+
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("ไม่พบข้อมูล")
+
+except Exception as e:
+    st.error("❌ Tracking error")
+    st.exception(e)
