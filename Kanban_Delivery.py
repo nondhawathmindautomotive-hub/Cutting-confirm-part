@@ -27,45 +27,50 @@ def confirm_kanban():
     if kanban == "":
         return
 
-    # ตรวจว่า Kanban มีอยู่ใน lot_master
-    lot = (
-        supabase.table("lot_master")
-        .select("kanban_no, model_name")
-        .eq("kanban_no", kanban)
-        .limit(1)
-        .execute()
-    )
+    try:
+        # 1) ตรวจว่ามีใน lot_master
+        lot = (
+            supabase.table("lot_master")
+            .select("kanban_no, model_name")
+            .eq("kanban_no", kanban)
+            .limit(1)
+            .execute()
+        )
 
-    if not lot.data:
-        st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้ใน Lot master")
+        if not lot.data:
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้ใน Lot master")
+            st.session_state.scan = ""
+            return
+
+        model = lot.data[0]["model_name"]
+
+        # 2) ตรวจว่าถูกส่งไปแล้วหรือยัง
+        exist = (
+            supabase.table("kanban_delivery")
+            .select("kanban_no")
+            .eq("kanban_no", kanban)
+            .execute()
+        )
+
+        if exist.data:
+            st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งไปแล้ว")
+            st.session_state.scan = ""
+            return
+
+        # 3) Insert (ให้ DB stamp เวลาเอง)
+        supabase.table("kanban_delivery").insert({
+            "kanban_no": kanban
+        }).execute()
+
+        st.session_state.msg = (
+            "success",
+            f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
+        )
         st.session_state.scan = ""
-        return
 
-    model = lot.data[0]["model_name"]
-
-    # ตรวจว่าเคยส่งแล้วหรือยัง
-    exist = (
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .eq("kanban_no", kanban)
-        .execute()
-    )
-
-    if exist.data:
-        st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งไปแล้ว")
-        st.session_state.scan = ""
-        return
-
-    # Insert (ใช้เวลาจาก DB = GMT+7)
-    supabase.table("kanban_delivery").insert({
-        "kanban_no": kanban
-    }).execute()
-    
-    st.session_state.msg = (
-        "success",
-        f"✅ ส่ง Kanban {kanban} (Model {model}) เรียบร้อย"
-    )
-    st.session_state.scan = ""
+    except Exception as e:
+        st.error("❌ INSERT FAILED")
+        st.exception(e)
 
 st.text_input(
     "Scan Kanban No.",
@@ -91,28 +96,25 @@ st.divider()
 st.header("📊 Model Kanban Status")
 
 try:
-    lot_data = (
+    lot_df = pd.DataFrame(
         supabase.table("lot_master")
         .select("model_name, kanban_no")
         .execute()
         .data
     )
 
-    delivery_data = (
+    del_df = pd.DataFrame(
         supabase.table("kanban_delivery")
         .select("kanban_no")
         .execute()
         .data
     )
 
-    df_lot = pd.DataFrame(lot_data)
-    df_del = pd.DataFrame(delivery_data)
-
-    if not df_lot.empty:
-        total = df_lot.groupby("model_name")["kanban_no"].nunique()
+    if not lot_df.empty:
+        total = lot_df.groupby("model_name")["kanban_no"].nunique()
 
         sent = (
-            df_lot.merge(df_del, on="kanban_no", how="inner")
+            lot_df.merge(del_df, on="kanban_no", how="inner")
             .groupby("model_name")["kanban_no"]
             .nunique()
         )
@@ -156,7 +158,7 @@ if wire_search:
 
 try:
     lot_data = query.execute().data
-    delivery_data = (
+    del_data = (
         supabase.table("kanban_delivery")
         .select("kanban_no, delivered_at")
         .execute()
@@ -164,14 +166,10 @@ try:
     )
 
     df_lot = pd.DataFrame(lot_data)
-    df_del = pd.DataFrame(delivery_data)
+    df_del = pd.DataFrame(del_data)
 
     if not df_lot.empty:
-        df = df_lot.merge(
-            df_del,
-            on="kanban_no",
-            how="left"
-        )
+        df = df_lot.merge(df_del, on="kanban_no", how="left")
 
         df.rename(columns={
             "kanban_no": "Kanban no.",
@@ -187,5 +185,3 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
-
-
