@@ -248,7 +248,7 @@ elif mode == "🔍 Tracking Search":
 # ==================================================
 elif mode == "🔐📤 Upload Lot Master ":
 
-    st.header("🔐 Upload Lot Master (Planner Only)")
+    st.header("🔐 Upload Lot Master")
 
     password = st.text_input("Planner Password", type="password")
 
@@ -296,6 +296,7 @@ elif mode == "🔐📤 Upload Lot Master ":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
 
 
 
