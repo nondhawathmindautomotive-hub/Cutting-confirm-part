@@ -1,86 +1,77 @@
 import streamlit as st
-.eq("active", True) \
-.execute()
+from supabase import create_client
+import pandas as pd
 
 
-if not master.data:
-st.session_state.msg = "❌ Part ไม่อยู่ใน Standard"
-st.session_state.ok = False
-return
-
-
-try:
-supabase.table("delivery_confirm").insert({
-"part_no": part_no,
-"lot_no": lot_no,
-"process_from": master.data[0]["process_from"],
-"process_to": master.data[0]["process_to"],
-"scan_by": get_device_name()
-}).execute()
-
-
-st.session_state.msg = "✅ Confirm สำเร็จ"
-st.session_state.ok = True
-
-
-except:
-st.session_state.msg = "❌ LOT นี้ถูก Confirm แล้ว"
-st.session_state.ok = False
-
-
-st.session_state.scan = ""
-
-
-# ================= UI =================
-st.title("📦 QR Scan Confirm Part")
-
-
-st.text_input(
-"Scan QR Code",
-key="scan",
-on_change=process_scan,
-placeholder="PARTNO|LOTNO",
+supabase = create_client(
+st.secrets["SUPABASE_URL"],
+st.secrets["SUPABASE_KEY"]
 )
 
 
-if "msg" in st.session_state:
-if st.session_state.ok:
-st.success(st.session_state.msg)
-else:
-st.error(st.session_state.msg)
+st.set_page_config(page_title="Kanban Scan", layout="centered")
+st.title("📦 Kanban Scan Confirm")
+
+
+# ===== SCAN INPUT =====
+def process_scan():
+kb = st.session_state.scan.strip()
+if not kb:
+return
+
+
+master = supabase.table("master_kanban").select("*").eq("kanban_no", kb).execute()
+if not master.data:
+st.session_state.error = "❌ ไม่พบ Kanban นี้"
+return
+
+
+mk = master.data[0]
+used = supabase.table("delivery_confirm").select("id", count="exact").eq("kanban_no", kb).execute().count
+
+
+if used >= mk["std_qty"]:
+st.session_state.error = "❌ Kanban นี้ส่งครบแล้ว"
+return
+
+
+supabase.table("delivery_confirm").insert({
+"kanban_no": kb,
+"part_no": mk["part_no"],
+"harness_group": mk["harness_group"]
+}).execute()
+
+
+st.session_state.success = f"ส่งแล้ว {used+1} เหลือ {mk['std_qty']-(used+1)}"
+st.session_state.scan = ""
+
+
+st.text_input("Scan Kanban No.", key="scan", on_change=process_scan)
+
+
+if "error" in st.session_state:
+st.error(st.session_state.error)
+del st.session_state.error
+
+
+if "success" in st.session_state:
+st.success(st.session_state.success)
+del st.session_state.success
 
 
 st.divider()
 
 
-# ================= REPORT =================
-st.subheader("📊 Report")
-
-
-col1, col2 = st.columns(2)
-with col1:
-report_date = st.date_input("Date", value=date.today())
-with col2:
-lot_filter = st.text_input("Lot (optional)")
-
-
-query = supabase.table("delivery_confirm").select("*") \
-.eq("scan_date", report_date)
-
-
-if lot_filter:
-query = query.eq("lot_no", lot_filter)
-
-
-res = query.execute()
-
-
-if res.data:
-df = pd.DataFrame(res.data)
-st.dataframe(df)
-
-
-csv = df.to_csv(index=False).encode("utf-8")
-st.download_button("⬇ Export CSV", csv, "confirm_report.csv")
+# ===== TRACKING TABLE =====
+if st.session_state.get("scan"):
+kb = st.session_state.scan
 else:
-st.info("No data")
+kb = None
+
+
+if kb:
+track = supabase.table("delivery_confirm").select("scan_time").eq("kanban_no", kb).order("scan_time").execute()
+if track.data:
+df = pd.DataFrame(track.data)
+st.subheader("📊 Tracking")
+st.dataframe(df)
