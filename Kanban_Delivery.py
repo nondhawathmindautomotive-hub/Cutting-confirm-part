@@ -25,7 +25,7 @@ mode = st.sidebar.radio(
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
-        "🔐📤 Upload Lot Master (Planner)"
+        "🔐📤 Upload Lot Master "
     ]
 )
 
@@ -208,9 +208,9 @@ elif mode == "🔍 Tracking Search":
         st.exception(e)
 
 # ==================================================
-# 4) UPLOAD LOT MASTER (PLANNER)
+# 4) UPLOAD LOT MASTER 
 # ==================================================
-elif mode == "🔐📤 Upload Lot Master (Planner)":
+elif mode == "🔐📤 Upload Lot Master ":
 
     st.header("🔐 Upload Lot Master (Planner Only)")
 
@@ -260,3 +260,4 @@ elif mode == "🔐📤 Upload Lot Master (Planner)":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
