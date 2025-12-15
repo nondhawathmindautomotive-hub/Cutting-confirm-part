@@ -138,15 +138,25 @@ except Exception as e:
 st.divider()
 
 # ===============================
-# TRACKING SEARCH (SUBPACKAGE)
+# TRACKING SEARCH
 # ===============================
-st.header("🔍 Tracking Search (Subpackage)")
+st.header("🔍 Tracking Search")
 
-subpackage_search = st.text_input("ค้นหาด้วย Subpackage number")
+col1, col2, col3 = st.columns(3)
+
+model_search = col1.text_input("ค้นหาด้วย Model name")
+wire_search = col2.text_input("ค้นหาด้วย Wire number")
+subpackage_search = col3.text_input("ค้นหาด้วย Subpackage number")
 
 query = supabase.table("lot_master").select(
-    "kanban_no, model_name, subpackage_number"
+    "kanban_no, model_name, wire_number, subpackage_number"
 )
+
+if model_search:
+    query = query.ilike("model_name", f"%{model_search}%")
+
+if wire_search:
+    query = query.ilike("wire_number", f"%{wire_search}%")
 
 if subpackage_search:
     query = query.ilike("subpackage_number", f"%{subpackage_search}%")
@@ -174,6 +184,7 @@ try:
         df.rename(columns={
             "kanban_no": "Kanban no.",
             "model_name": "Model",
+            "wire_number": "Wire number",
             "subpackage_number": "Subpackage number",
             "delivered_at": "Delivered at (GMT+7)"
         }, inplace=True)
@@ -185,6 +196,7 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
+
 
 
 
