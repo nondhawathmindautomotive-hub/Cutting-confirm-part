@@ -41,6 +41,7 @@ if mode == "✅ Scan Kanban":
         if kanban == "":
             return
 
+        # ตรวจใน lot_master
         lot = (
             supabase.table("lot_master")
             .select("kanban_no, model_name")
@@ -56,6 +57,7 @@ if mode == "✅ Scan Kanban":
 
         model = lot.data[0]["model_name"]
 
+        # ตรวจซ้ำ
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -68,6 +70,7 @@ if mode == "✅ Scan Kanban":
             st.session_state.scan = ""
             return
 
+        # INSERT (เวลาใช้ default DB = GMT+7)
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
             "model_name": model
@@ -87,48 +90,63 @@ if mode == "✅ Scan Kanban":
 
     if "msg" in st.session_state:
         t, m = st.session_state.msg
-        {"success": st.success, "warning": st.warning, "error": st.error}[t](m)
+        if t == "success":
+            st.success(m)
+        elif t == "warning":
+            st.warning(m)
+        else:
+            st.error(m)
         del st.session_state.msg
 
 # ==================================================
-# 2) MODEL STATUS
+# 2) MODEL KANBAN STATUS
 # ==================================================
 elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    lot_df = pd.DataFrame(
-        supabase.table("lot_master")
-        .select("model_name, kanban_no")
-        .execute()
-        .data
-    )
-
-    delivery_df = pd.DataFrame(
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .execute()
-        .data
-    )
-
-    if not lot_df.empty:
-        total = lot_df.groupby("model_name")["kanban_no"].nunique()
-        sent = (
-            lot_df.merge(delivery_df, on="kanban_no", how="inner")
-            .groupby("model_name")["kanban_no"]
-            .nunique()
+    try:
+        lot_df = pd.DataFrame(
+            supabase.table("lot_master")
+            .select("model_name, kanban_no")
+            .execute()
+            .data
         )
 
-        summary = pd.DataFrame({
-            "Total Kanban": total,
-            "Sent": sent
-        }).fillna(0)
+        delivery_df = pd.DataFrame(
+            supabase.table("kanban_delivery")
+            .select("kanban_no")
+            .execute()
+            .data
+        )
 
-        summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
-        st.dataframe(summary.reset_index(), use_container_width=True)
-    else:
-        st.info("ยังไม่มี Lot master")
+        if not lot_df.empty:
+            total = lot_df.groupby("model_name")["kanban_no"].nunique()
 
+            sent = (
+                lot_df.merge(delivery_df, on="kanban_no", how="inner")
+                .groupby("model_name")["kanban_no"]
+                .nunique()
+            )
+
+            summary = pd.DataFrame({
+                "Total Kanban": total,
+                "Sent": sent
+            }).fillna(0)
+
+            summary["Remaining"] = summary["Total Kanban"] - summary["Sent"]
+
+            st.dataframe(summary.reset_index(), use_container_width=True)
+        else:
+            st.info("ยังไม่มีข้อมูล Lot master")
+
+    except Exception as e:
+        st.error("❌ สรุปข้อมูลผิดพลาด")
+        st.exception(e)
+
+# ==================================================
+# 3) TRACKING SEARCH
+# ==================================================
 elif mode == "🔍 Tracking Search":
 
     st.header("🔍 Tracking Search")
@@ -153,7 +171,7 @@ elif mode == "🔍 Tracking Search":
     if subpackage:
         query = query.ilike("subpackage_number", f"%{subpackage}%")
 
-    # 🔥 SEARCH BY LOT (kanban suffix)
+    # 🔥 SEARCH BY LOT (ท้าย Kanban)
     if lot:
         query = query.ilike("kanban_no", f"%-{lot}%")
 
@@ -230,7 +248,11 @@ elif mode == "🔐📤 Upload Lot Master (Planner)":
             st.stop()
 
         if st.button("🚀 Upload to Supabase"):
-            data = df[list(required_cols)].dropna().to_dict("records")
+            data = (
+                df[list(required_cols)]
+                .dropna(subset=["kanban_no"])
+                .to_dict("records")
+            )
 
             supabase.table("lot_master").insert(
                 data,
