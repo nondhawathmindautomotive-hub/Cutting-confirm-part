@@ -138,28 +138,23 @@ except Exception as e:
 st.divider()
 
 # ===============================
-# TRACKING SEARCH
+# TRACKING SEARCH (SUBPACKAGE)
 # ===============================
-st.header("🔍 Tracking Search")
+st.header("🔍 Tracking Search (Subpackage)")
 
-col1, col2 = st.columns(2)
-
-model_search = col1.text_input("ค้นหาด้วย Model name")
-wire_search = col2.text_input("ค้นหาด้วย Wire number")
+subpackage_search = st.text_input("ค้นหาด้วย Subpackage number")
 
 query = supabase.table("lot_master").select(
-    "kanban_no, model_name, wire_number"
+    "kanban_no, model_name, subpackage_number"
 )
 
-if model_search:
-    query = query.ilike("model_name", f"%{model_search}%")
-
-if wire_search:
-    query = query.ilike("wire_number", f"%{wire_search}%")
+if subpackage_search:
+    query = query.ilike("subpackage_number", f"%{subpackage_search}%")
 
 try:
     lot_data = query.execute().data
-    del_data = (
+
+    delivery_data = (
         supabase.table("kanban_delivery")
         .select("kanban_no, delivered_at")
         .execute()
@@ -167,15 +162,19 @@ try:
     )
 
     df_lot = pd.DataFrame(lot_data)
-    df_del = pd.DataFrame(del_data)
+    df_del = pd.DataFrame(delivery_data)
 
     if not df_lot.empty:
-        df = df_lot.merge(df_del, on="kanban_no", how="left")
+        df = df_lot.merge(
+            df_del,
+            on="kanban_no",
+            how="left"
+        )
 
         df.rename(columns={
             "kanban_no": "Kanban no.",
             "model_name": "Model",
-            "wire_number": "Wire number",
+            "subpackage_number": "Subpackage number",
             "delivered_at": "Delivered at (GMT+7)"
         }, inplace=True)
 
@@ -186,4 +185,6 @@ try:
 except Exception as e:
     st.error("❌ Tracking error")
     st.exception(e)
+
+
 
