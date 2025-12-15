@@ -14,7 +14,7 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.title("📦 Kanban Delivery Tracking (GMT+7)")
+st.title("📦 Kanban Delivery - MIND Automotive Parts")
 
 # ===============================
 # SIDEBAR MENU
@@ -260,4 +260,5 @@ elif mode == "🔐📤 Upload Lot Master ":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
+
 
