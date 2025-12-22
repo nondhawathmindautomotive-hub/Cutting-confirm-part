@@ -95,61 +95,42 @@ elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    # ===============================
-    # FILTER
-    # ===============================
     col1, col2 = st.columns(2)
     model_filter = col1.text_input("ค้นหา Model")
     lot_filter = col2.text_input("ค้นหา Lot (เช่น 251205)")
 
     try:
         # ===============================
-        # LOAD LOT MASTER (ใช้ lot_no จริง)
+        # QUERY LOT MASTER (FILTER ที่ DB)
         # ===============================
-        lot_data = (
-            supabase.table("lot_master")
-            .select("model_name, kanban_no, lot_no")
-            .execute()
-            .data
+        query = supabase.table("lot_master").select(
+            "model_name, kanban_no, lot_no"
         )
 
+        if model_filter:
+            query = query.ilike("model_name", f"%{model_filter}%")
+
+        if lot_filter:
+            # 🔥 จุดสำคัญ: เทียบ lot_no ตรง ๆ
+            query = query.eq("lot_no", lot_filter)
+
+        lot_data = query.execute().data
+
         if not lot_data:
-            st.info("ยังไม่มีข้อมูล Lot master")
+            st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
             st.stop()
 
         lot_df = pd.DataFrame(lot_data)
 
         # ===============================
-        # APPLY FILTER
+        # LOAD DELIVERY
         # ===============================
-        if model_filter:
-            lot_df = lot_df[
-                lot_df["model_name"]
-                .str.contains(model_filter, case=False, na=False)
-            ]
-
-        if lot_filter:
-            lot_df = lot_df[
-                lot_df["lot_no"]
-                .astype(str)
-                .str.contains(lot_filter, case=False, na=False)
-            ]
-
-        if lot_df.empty:
-            st.info("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
-            st.stop()
-
-        # ===============================
-        # LOAD DELIVERY DATA
-        # ===============================
-        delivery_data = (
+        delivery_df = pd.DataFrame(
             supabase.table("kanban_delivery")
             .select("kanban_no")
             .execute()
             .data
         )
-
-        delivery_df = pd.DataFrame(delivery_data)
 
         if not delivery_df.empty:
             delivery_df["sent"] = 1
@@ -159,12 +140,7 @@ elif mode == "📊 Model Kanban Status":
         # ===============================
         # MERGE + SUMMARY
         # ===============================
-        df = lot_df.merge(
-            delivery_df,
-            on="kanban_no",
-            how="left"
-        )
-
+        df = lot_df.merge(delivery_df, on="kanban_no", how="left")
         df["sent"] = df["sent"].fillna(0)
 
         summary = (
@@ -184,9 +160,6 @@ elif mode == "📊 Model Kanban Status":
             "Total_Kanban": "Total Kanban"
         }, inplace=True)
 
-        # ===============================
-        # DISPLAY
-        # ===============================
         st.dataframe(summary, use_container_width=True)
 
     except Exception as e:
@@ -294,4 +267,5 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
 
