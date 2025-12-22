@@ -25,7 +25,7 @@ mode = st.sidebar.radio(
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
-        "🔐📤 Upload Lot Master "
+        "🔐📤 Upload Lot Master"
     ]
 )
 
@@ -38,10 +38,10 @@ if mode == "✅ Scan Kanban":
 
     def confirm_kanban():
         kanban = st.session_state.scan.strip()
-        if kanban == "":
+        if not kanban:
             return
 
-        # ตรวจใน lot_master
+        # 1. ตรวจใน lot_master
         lot = (
             supabase.table("lot_master")
             .select("kanban_no, model_name")
@@ -57,7 +57,7 @@ if mode == "✅ Scan Kanban":
 
         model = lot.data[0]["model_name"]
 
-        # ตรวจซ้ำ
+        # 2. ตรวจซ้ำ
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -70,7 +70,7 @@ if mode == "✅ Scan Kanban":
             st.session_state.scan = ""
             return
 
-        # INSERT (เวลาใช้ default DB = GMT+7)
+        # 3. INSERT (created_at = default now() จาก DB)
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
             "model_name": model
@@ -105,22 +105,19 @@ elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    # 🔍 FILTER
     col1, col2 = st.columns(2)
     model_filter = col1.text_input("ค้นหา Model")
     lot_filter = col2.text_input("ค้นหา Lot (เช่น 251201)")
 
     try:
-        # ดึง lot_master
         lot_df = pd.DataFrame(
             supabase.table("lot_master")
-            .select("model_name, kanban_no")
+            .select("kanban_no, model_name")
             .execute()
             .data
         )
 
-        # ดึง kanban_delivery
-        delivery_df = pd.DataFrame(
+        del_df = pd.DataFrame(
             supabase.table("kanban_delivery")
             .select("kanban_no")
             .execute()
@@ -134,31 +131,22 @@ elif mode == "📊 Model Kanban Status":
         # แยก Lot จาก Kanban
         lot_df["lot"] = lot_df["kanban_no"].str.split("-").str[-1]
 
-        # 🔍 FILTER DATA
         if model_filter:
             lot_df = lot_df[
-                lot_df["model_name"]
-                .str.contains(model_filter, case=False, na=False)
+                lot_df["model_name"].str.contains(model_filter, case=False, na=False)
             ]
 
         if lot_filter:
             lot_df = lot_df[
-                lot_df["lot"]
-                .str.contains(lot_filter, case=False, na=False)
+                lot_df["lot"].str.contains(lot_filter, case=False, na=False)
             ]
 
-        # เตรียม delivery
-        if not delivery_df.empty:
-            delivery_df["sent"] = 1
-        else:
-            delivery_df = pd.DataFrame(columns=["kanban_no", "sent"])
+        lot_df["sent"] = lot_df["kanban_no"].isin(
+            del_df["kanban_no"] if not del_df.empty else []
+        ).astype(int)
 
-        df = lot_df.merge(delivery_df, on="kanban_no", how="left")
-        df["sent"] = df["sent"].fillna(0)
-
-        # สรุป
         summary = (
-            df.groupby(["model_name", "lot"])
+            lot_df.groupby(["model_name", "lot"])
             .agg(
                 Total_Kanban=("kanban_no", "nunique"),
                 Sent=("sent", "sum")
@@ -177,7 +165,7 @@ elif mode == "📊 Model Kanban Status":
         st.dataframe(summary, use_container_width=True)
 
     except Exception as e:
-        st.error("❌ สรุป Model + Lot ผิดพลาด")
+        st.error("❌ สรุป Model Kanban Status ผิดพลาด")
         st.exception(e)
 
 # ==================================================
@@ -188,7 +176,6 @@ elif mode == "🔍 Tracking Search":
     st.header("🔍 Tracking Search")
 
     col1, col2, col3, col4 = st.columns(4)
-
     model = col1.text_input("Model name")
     wire = col2.text_input("Wire number")
     subpackage = col3.text_input("Subpackage number")
@@ -200,53 +187,46 @@ elif mode == "🔍 Tracking Search":
 
     if model:
         query = query.ilike("model_name", f"%{model}%")
-
     if wire:
         query = query.ilike("wire_number", f"%{wire}%")
-
     if subpackage:
         query = query.ilike("subpackage_number", f"%{subpackage}%")
-
-    # 🔥 SEARCH BY LOT (ท้าย Kanban)
     if lot:
         query = query.ilike("kanban_no", f"%-{lot}%")
 
     try:
-        lot_data = query.execute().data
-
-        delivery_data = (
+        lot_df = pd.DataFrame(query.execute().data)
+        del_df = pd.DataFrame(
             supabase.table("kanban_delivery")
-            .select("kanban_no, delivered_at")
+            .select("kanban_no, created_at")
             .execute()
             .data
         )
 
-        df_lot = pd.DataFrame(lot_data)
-        df_del = pd.DataFrame(delivery_data)
-
-        if not df_lot.empty:
-            df = df_lot.merge(df_del, on="kanban_no", how="left")
-
-            df.rename(columns={
-                "kanban_no": "Kanban no.",
-                "model_name": "Model",
-                "wire_number": "Wire number",
-                "subpackage_number": "Subpackage number",
-                "delivered_at": "Delivered at (GMT+7)"
-            }, inplace=True)
-
-            st.dataframe(df, use_container_width=True)
-        else:
+        if lot_df.empty:
             st.info("ไม่พบข้อมูล")
+            st.stop()
+
+        df = lot_df.merge(del_df, on="kanban_no", how="left")
+
+        df.rename(columns={
+            "kanban_no": "Kanban no.",
+            "model_name": "Model",
+            "wire_number": "Wire number",
+            "subpackage_number": "Subpackage number",
+            "created_at": "Delivered at (GMT+7)"
+        }, inplace=True)
+
+        st.dataframe(df, use_container_width=True)
 
     except Exception as e:
         st.error("❌ Tracking error")
         st.exception(e)
 
 # ==================================================
-# 4) UPLOAD LOT MASTER 
+# 4) UPLOAD LOT MASTER
 # ==================================================
-elif mode == "🔐📤 Upload Lot Master ":
+elif mode == "🔐📤 Upload Lot Master":
 
     st.header("🔐 Upload Lot Master")
 
@@ -256,18 +236,13 @@ elif mode == "🔐📤 Upload Lot Master ":
         st.warning("🔒 โหมดนี้สำหรับ Planner เท่านั้น")
         st.stop()
 
-    st.success("✅ Authorized")
-
     file = st.file_uploader(
         "Upload Lot Master (CSV / Excel)",
         type=["csv", "xlsx"]
     )
 
     if file:
-        if file.name.endswith(".csv"):
-            df = pd.read_csv(file)
-        else:
-            df = pd.read_excel(file)
+        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
         st.subheader("📋 Preview")
         st.dataframe(df.head(), use_container_width=True)
@@ -283,23 +258,12 @@ elif mode == "🔐📤 Upload Lot Master ":
             st.error(f"❌ ต้องมี column: {', '.join(required_cols)}")
             st.stop()
 
-        if st.button("🚀 Upload to Data Base"):
+        if st.button("🚀 Upload to Database"):
             data = (
                 df[list(required_cols)]
                 .dropna(subset=["kanban_no"])
                 .to_dict("records")
             )
 
-            supabase.table("lot_master").insert(
-                data,
-                count="exact"
-            ).execute()
-
+            supabase.table("lot_master").upsert(data).execute()
             st.success(f"✅ Upload สำเร็จ {len(data)} records")
-
-
-
-
-
-
-
