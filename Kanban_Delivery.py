@@ -168,7 +168,12 @@ elif mode == "📊 Model Kanban Status":
     # ===============================
     # 🔥 FIX 100% : CAST LOT_NO → STRING
     # ===============================
-    lot_df["lot_no"] = lot_df["lot_no"].astype(str).str.strip()
+    # 🔥 CLEAN LOT_NO FROM EXCEL FLOAT (CRITICAL FIX)
+    lot_df["lot_no"] = (lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+        )
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
     lot_df["model_name"] = lot_df["model_name"].astype(str)
 
@@ -339,6 +344,7 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
 
