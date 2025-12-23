@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (FIX TOTAL = REAL KANBAN COUNT)
+# 2) MODEL KANBAN STATUS (FIXED TOTAL + NO REGEX)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -188,7 +188,7 @@ elif mode == "📊 Model Kanban Status":
 
     c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
-    lot_filter = c2.text_input("Lot")
+    lot_filter = c2.text_input("Lot (เช่น 251203)")
 
     # -----------------------------
     # LOAD LOT MASTER
@@ -197,37 +197,50 @@ elif mode == "📊 Model Kanban Status":
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
         .execute()
-        .data,
-        ["model_name", "kanban_no", "lot_no"]
+        .data
     )
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูล")
+        st.warning("ไม่พบข้อมูล lot_master")
         st.stop()
 
+    # -----------------------------
+    # CLEAN DATA
+    # -----------------------------
+    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["lot_no"] = clean_series(lot_df["lot_no"])
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
 
     # -----------------------------
-    # FILTER
+    # FILTER LOT (EXACT MATCH)
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[lot_df["lot_no"] == str(lot_filter).strip()]
+        lot_df = lot_df[
+            lot_df["lot_no"] == str(lot_filter).strip()
+        ]
 
+    # -----------------------------
+    # FILTER MODEL (EXACT STRING)
+    # ❗ NO REGEX → (L) (M) SAFE
+    # -----------------------------
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(
-                model_filter, case=False, na=False
-            )
+            lot_df["model_name"] == model_filter.strip()
         ]
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่เลือก")
         st.stop()
 
     # -----------------------------
-    # LOAD DELIVERY
+    # REMOVE DUPLICATE KANBAN
+    # -----------------------------
+    lot_df = lot_df.drop_duplicates(
+        subset=["kanban_no"]
+    )
+
+    # -----------------------------
+    # LOAD DELIVERY DATA
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -238,39 +251,39 @@ elif mode == "📊 Model Kanban Status":
     )
 
     del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-    del_df["is_sent"] = True
+    del_df["sent"] = 1
 
     # -----------------------------
-    # MERGE SENT FLAG
+    # MERGE STATUS
     # -----------------------------
     df = lot_df.merge(
         del_df,
         on="kanban_no",
         how="left"
     )
-
-    df["is_sent"] = df["is_sent"].fillna(False)
+    df["sent"] = df["sent"].fillna(0)
 
     # -----------------------------
-    # SUMMARY (EXCEL LOGIC)
+    # SUMMARY (KANBAN COUNT REAL)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Kanban_Count=("kanban_no", "nunique"),   # 👈 เท่ากับ Excel
-            Total=("kanban_no", "nunique"),
-            Sent=("kanban_no", lambda x: x[df.loc[x.index, "is_sent"]].nunique())
+            Kanban_Count=("kanban_no", "nunique"),
+            Sent=("sent", "sum")
         )
         .reset_index()
     )
 
-    summary["Remaining"] = summary["Total"] - summary["Sent"]
+    summary["Remaining"] = summary["Kanban_Count"] - summary["Sent"]
 
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
     st.dataframe(
         summary.sort_values(["lot_no", "model_name"]),
         use_container_width=True
     )
-
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -354,6 +367,7 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
 
