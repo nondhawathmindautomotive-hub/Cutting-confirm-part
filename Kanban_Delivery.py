@@ -425,17 +425,3 @@ elif mode == "🔐📤 Upload Lot Master":
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
