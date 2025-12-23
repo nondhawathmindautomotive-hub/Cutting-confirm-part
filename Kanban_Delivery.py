@@ -186,7 +186,6 @@ if mode == "✅ Scan Kanban":
         "Scan Kanban No.",
         key="scan",
         on_change=confirm_scan,
-        autofocus=True
     )
 
     if "msg" in st.session_state:
@@ -348,3 +347,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
