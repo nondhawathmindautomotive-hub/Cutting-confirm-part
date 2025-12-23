@@ -195,7 +195,7 @@ elif mode == "📊 Model Kanban Status":
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
-        .select("model_name, kanban_no, lot_no")
+        .select("model_key, kanban_no, lot_no")
         .execute()
         .data
     )
@@ -279,12 +279,12 @@ elif mode == "📊 Model Kanban Status":
     summary = (
         df.groupby(["model_key", "lot_no"])
         .agg(
-            Total_Kanban=("kanban_no", "nunique"),
-            Sent=("sent", "sum"),
+            Total=("kanban_no", "count"),
+            Sent=("sent", "sum")
         )
         .reset_index()
-        .rename(columns={"model_key": "model_name"})
     )
+
 
     summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
@@ -425,6 +425,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
