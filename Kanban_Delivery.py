@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS
+# 2) MODEL KANBAN STATUS (COUNT REAL KANBAN)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -190,41 +190,47 @@ elif mode == "📊 Model Kanban Status":
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
     lot_filter = c2.text_input("Lot")
 
+    # -----------------------------
+    # LOAD LOT MASTER
+    # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
         .execute()
-        .data
+        .data,
+        ["model_name", "kanban_no", "lot_no"]
     )
 
-    # -----------------------------
-    # CLEAN DATA
-    # -----------------------------
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล lot master")
+        st.stop()
+
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["lot_no"] = clean_series(lot_df["lot_no"])
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
+    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
 
-    # ⭐ CREATE BASE MODEL (ตัด (L),(M),(L/M))
-    lot_df["base_model"] = (
-        lot_df["model_name"]
-        .str.replace(r"\(.*?\)", "", regex=True)
-        .str.strip()
-    )
-
+    # -----------------------------
+    # FILTER
+    # -----------------------------
     if lot_filter:
         lot_df = lot_df[
-            lot_df["lot_no"] == lot_filter.strip()
+            lot_df["lot_no"] == str(lot_filter).strip()
         ]
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["base_model"]
-            .str.contains(model_filter, case=False, na=False)
+            lot_df["model_name"].str.contains(
+                model_filter, case=False, na=False
+            )
         ]
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูล")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
+    # -----------------------------
+    # LOAD DELIVERY (SENT)
+    # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
@@ -232,31 +238,51 @@ elif mode == "📊 Model Kanban Status":
         .data,
         ["kanban_no"]
     )
+
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
     del_df["sent"] = 1
 
-    df = lot_df.merge(del_df, on="kanban_no", how="left")
+    # -----------------------------
+    # MERGE
+    # -----------------------------
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
     df["sent"] = df["sent"].fillna(0)
 
     # -----------------------------
-    # GROUP BY BASE MODEL
+    # SUMMARY (COUNT REAL KANBAN)
     # -----------------------------
     summary = (
-        df.groupby(["base_model", "lot_no"])
+        df.groupby(["model_name", "lot_no"])
         .agg(
-            Total=("kanban_no", "count"),
-            Sent=("sent", "sum")
+            Total=("kanban_no", "nunique"),  # ✅ นับ Kanban จริง
+            Sent=(
+                "kanban_no",
+                lambda x: x[
+                    df.loc[x.index, "sent"] == 1
+                ].nunique()
+            )
         )
         .reset_index()
     )
 
     summary["Remaining"] = summary["Total"] - summary["Sent"]
 
-    summary.rename(columns={
-        "base_model": "Model",
-        "lot_no": "Lot"
-    }, inplace=True)
+    summary = summary.sort_values(
+        ["lot_no", "model_name"]
+    )
 
-    st.dataframe(summary, use_container_width=True)
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
+    st.dataframe(
+        summary,
+        use_container_width=True
+    )
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -340,4 +366,5 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
