@@ -146,53 +146,81 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (DB FILTER ONLY)
+# 2) MODEL KANBAN STATUS (LOT → SHOW ALL MODELS)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
     c1, c2 = st.columns(2)
-    model_filter = c1.text_input("Model")
-    lot_filter = c2.text_input("Lot No.")
+    model_filter = c1.text_input("Model (ไม่จำเป็น)")
+    lot_filter = c2.text_input("Lot (เช่น 251205)")
 
     # ===============================
-    # QUERY LOT MASTER (DB SIDE)
+    # LOAD LOT MASTER
     # ===============================
-    query = supabase.table("lot_master").select(
+    lot_data = supabase.table("lot_master").select(
         "model_name, kanban_no, lot_no"
-    )
-
-    if model_filter:
-        query = query.ilike("model_name", f"%{model_filter}%")
-
-    if lot_filter:
-        query = query.eq("lot_no", lot_filter.strip())
-
-    lot_data = query.execute().data
+    ).execute().data
 
     if not lot_data:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
+        st.warning("ไม่พบข้อมูลใน Lot Master")
         st.stop()
 
     lot_df = pd.DataFrame(lot_data)
 
     # ===============================
-    # DELIVERY
+    # CLEAN DATA (CRITICAL)
     # ===============================
-    del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .execute()
-        .data,
-        ["kanban_no"]
+    lot_df["lot_no"] = (
+        lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
     )
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
+    lot_df["model_name"] = lot_df["model_name"].astype(str)
 
-    del_df["sent"] = 1
+    # ===============================
+    # FILTER BY LOT ONLY (KEY POINT)
+    # ===============================
+    if lot_filter:
+        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
 
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูลตาม Lot ที่ค้นหา")
+        st.stop()
+
+    # ===============================
+    # LOAD DELIVERY
+    # ===============================
+    del_data = supabase.table("kanban_delivery") \
+        .select("kanban_no") \
+        .execute().data
+
+    if del_data:
+        del_df = pd.DataFrame(del_data)
+        del_df["sent"] = 1
+    else:
+        del_df = pd.DataFrame(columns=["kanban_no", "sent"])
+
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str)
+
+    # ===============================
+    # MERGE
+    # ===============================
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     df["sent"] = df["sent"].fillna(0)
 
+    # ===============================
+    # OPTIONAL MODEL FILTER
+    # ===============================
+    if model_filter:
+        df = df[df["model_name"].str.contains(model_filter, case=False, na=False)]
+
+    # ===============================
+    # SUMMARY (SHOW ALL MODELS IN LOT)
+    # ===============================
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
@@ -347,4 +375,5 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
 
