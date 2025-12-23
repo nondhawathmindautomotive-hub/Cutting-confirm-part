@@ -179,7 +179,7 @@ if mode == "✅ Scan Kanban":
         getattr(st, t)(m)
         del st.session_state.msg
 # =====================================================
-# 2) MODEL KANBAN STATUS (MODEL GROUPED + CORRECT COUNT)
+# 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -190,11 +190,11 @@ elif mode == "📊 Model Kanban Status":
     lot_filter = c2.text_input("Lot")
 
     # -----------------------------
-    # LOAD LOT MASTER
+    # LOAD LOT MASTER (USE REAL COLUMN)
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
-        .select("model_key, kanban_no, lot_no")
+        .select("model_name, kanban_no, lot_no")
         .execute()
         .data
     )
@@ -204,7 +204,7 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # CLEAN & NORMALIZE
+    # CLEAN DATA
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
 
@@ -215,19 +215,9 @@ elif mode == "📊 Model Kanban Status":
         .str.strip()
     )
 
-    lot_df["model_key"] = (
-        lot_df["model_key"]
+    lot_df["model_name"] = (
+        lot_df["model_name"]
         .astype(str)
-        .str.strip()
-        .str.replace(r"\s+", " ", regex=True)
-    )
-
-    # -----------------------------
-    # 🔑 MODEL GROUP (รวม L / M / L-M)
-    # -----------------------------
-    lot_df["model_group"] = (
-        lot_df["model_key"]
-        .str.replace(r"\(.*\)$", "", regex=True)
         .str.strip()
     )
 
@@ -241,7 +231,7 @@ elif mode == "📊 Model Kanban Status":
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_group"]
+            lot_df["model_name"]
             .str.contains(model_filter.strip(), case=False, na=False)
         ]
 
@@ -250,10 +240,10 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # UNIQUE KANBAN (กันนับซ้ำ)
+    # UNIQUE KANBAN (CRITICAL)
     # -----------------------------
     lot_df = lot_df.drop_duplicates(
-        subset=["model_group", "lot_no", "kanban_no"]
+        subset=["model_name", "lot_no", "kanban_no"]
     )
 
     # -----------------------------
@@ -281,10 +271,10 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # SUMMARY ✅ (TOTAL = จำนวน Kanban จริง)
+    # SUMMARY (✔ EXACT CSV COUNT)
     # -----------------------------
     summary = (
-        df.groupby(["model_group", "lot_no"])
+        df.groupby(["model_name", "lot_no"])
         .agg(
             Total_Kanban=("kanban_no", "nunique"),
             Sent=("sent", "sum")
@@ -298,17 +288,16 @@ elif mode == "📊 Model Kanban Status":
     # DISPLAY
     # -----------------------------
     st.dataframe(
-        summary.sort_values(["model_group", "lot_no"]),
+        summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
 
     # -----------------------------
-    # DETAIL (ตรวจสอบ 31 ตัว)
+    # DETAIL (PROOF 472)
     # -----------------------------
     with st.expander("📋 รายการ Kanban ที่ถูกนำมานับ"):
         st.dataframe(
-            df[["model_key", "model_group", "lot_no", "kanban_no", "sent"]]
-            .sort_values(["model_group", "kanban_no"]),
+            df.sort_values(["model_name", "kanban_no"]),
             use_container_width=True
         )
 
@@ -435,6 +424,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
