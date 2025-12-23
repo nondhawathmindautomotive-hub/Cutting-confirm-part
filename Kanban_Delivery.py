@@ -291,39 +291,6 @@ elif mode == "📊 Model Kanban Status":
         summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
-    # =================================================
-    # EXPORT MODEL KANBAN STATUS
-    # =================================================
-    st.markdown("### 📤 Export Model Kanban Status")
-
-    export_mode = st.radio(
-        "เลือกข้อมูลที่ต้องการ Export",
-        ["เฉพาะข้อมูลที่แสดง", "ทั้งหมด"],
-        horizontal=True,
-        key="export_model_status"
-    )
-
-    if export_mode == "ทั้งหมด":
-        export_df = summary.copy()
-    else:
-        export_df = summary.copy()  # ตัวเดียวกับที่ filter แล้ว
-
-    from io import BytesIO
-
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        export_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Model_Kanban_Status"
-        )
-
-    st.download_button(
-        label="⬇️ Download Excel",
-        data=buffer.getvalue(),
-        file_name="model_kanban_status.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
 
     # -----------------------------
     # DETAIL (PROOF 472)
@@ -384,54 +351,6 @@ elif mode == "🔍 Tracking Search":
 
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     st.dataframe(df, use_container_width=True)
-        # =================================================
-    # EXPORT TRACKING SEARCH
-    # =================================================
-    st.markdown("### 📤 Export Tracking Result")
-
-    export_mode = st.radio(
-        "เลือกข้อมูลที่ต้องการ Export",
-        ["เฉพาะผลการค้นหา", "ทั้งหมด"],
-        horizontal=True,
-        key="export_tracking"
-    )
-
-    if export_mode == "ทั้งหมด":
-        export_df = safe_df(
-            supabase.table("lot_master")
-            .select("""
-                kanban_no,
-                model_name,
-                wire_number,
-                subpackage_number,
-                wire_harness_code,
-                lot_no,
-                joint_a,
-                joint_b
-            """)
-            .execute()
-            .data
-        )
-    else:
-        export_df = df.copy()
-
-    from io import BytesIO
-
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        export_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Tracking_Search"
-        )
-
-    st.download_button(
-        label="⬇️ Download Excel",
-        data=buffer.getvalue(),
-        file_name="tracking_search.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
 
 # =====================================================
 # 4) UPLOAD LOT MASTER (SAFE JSON + NO ERROR)
