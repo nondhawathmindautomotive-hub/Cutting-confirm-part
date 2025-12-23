@@ -146,7 +146,7 @@ if mode == "✅ Scan Kanban":
                 supabase.table("kanban_delivery").insert(to_insert).execute()
                 st.session_state.msg = (
                     "success",
-                    f"✅ Joint COMPLETE ({len(to_insert)} ใบ)"
+                    f"✅ส่งชุด Joint COMPLETE ({len(to_insert)} วงจร)"
                 )
             else:
                 st.session_state.msg = (
@@ -347,4 +347,5 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
