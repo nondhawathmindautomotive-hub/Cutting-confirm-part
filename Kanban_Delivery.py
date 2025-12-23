@@ -43,66 +43,63 @@ def safe_df(data, columns):
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan / Confirm Kanban")
+    st.header("✅ Scan Kanban (Auto)")
 
-    joint_mode = st.toggle("🔗 Joint Delivery (ทั้ง Lot / Model)", value=False)
+    if "scan" not in st.session_state:
+        st.session_state.scan = ""
 
-    def confirm_kanban():
+    def auto_scan():
+
         kanban = st.session_state.scan.strip()
         if not kanban:
             return
 
-        lot = (
-            supabase.table("lot_master")
-            .select("kanban_no, model_name, lot_no")
-            .eq("kanban_no", kanban)
-            .limit(1)
-            .execute()
-            .data
-        )
+        # ===============================
+        # FIND KANBAN IN LOT MASTER
+        # ===============================
+        lot = supabase.table("lot_master") \
+            .select("kanban_no, model_name, lot_no, joint_key") \
+            .eq("kanban_no", kanban) \
+            .limit(1) \
+            .execute().data
 
         if not lot:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้")
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
             st.session_state.scan = ""
             return
 
-        model = lot[0]["model_name"]
-        lot_no = lot[0]["lot_no"]
+        row = lot[0]
 
-        # ================= JOINT =================
-        if joint_mode:
-            all_k = (
-                supabase.table("lot_master")
-                .select("kanban_no")
-                .eq("model_name", model)
-                .eq("lot_no", lot_no)
-                .execute()
-                .data
-            )
+        # ===============================
+        # CHECK JOINT
+        # ===============================
+        if row["joint_key"]:
+
+            all_k = supabase.table("lot_master") \
+                .select("kanban_no") \
+                .eq("joint_key", row["joint_key"]) \
+                .execute().data
 
             all_list = [x["kanban_no"] for x in all_k]
 
-            sent = (
-                supabase.table("kanban_delivery")
-                .select("kanban_no")
-                .in_("kanban_no", all_list)
-                .execute()
-                .data
-            )
+            sent = supabase.table("kanban_delivery") \
+                .select("kanban_no") \
+                .in_("kanban_no", all_list) \
+                .execute().data
 
             sent_set = {x["kanban_no"] for x in sent}
 
             insert_rows = [
                 {
                     "kanban_no": k,
-                    "model_name": model,
-                    "lot_no": lot_no
+                    "model_name": row["model_name"],
+                    "lot_no": row["lot_no"]
                 }
                 for k in all_list if k not in sent_set
             ]
 
             if not insert_rows:
-                st.session_state.msg = ("warning", "⚠️ Lot นี้ถูกส่งครบแล้ว")
+                st.session_state.msg = ("warning", "⚠️ Joint นี้ Complete แล้ว")
                 st.session_state.scan = ""
                 return
 
@@ -110,19 +107,19 @@ if mode == "✅ Scan Kanban":
 
             st.session_state.msg = (
                 "success",
-                f"✅ Joint ส่งแล้ว {len(insert_rows)} ใบ | {model} | Lot {lot_no}"
+                f"✅ Joint Complete {len(insert_rows)} ใบ"
             )
+
             st.session_state.scan = ""
             return
 
-        # ================= NORMAL =================
-        exist = (
-            supabase.table("kanban_delivery")
-            .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .execute()
-            .data
-        )
+        # ===============================
+        # NORMAL KANBAN
+        # ===============================
+        exist = supabase.table("kanban_delivery") \
+            .select("kanban_no") \
+            .eq("kanban_no", kanban) \
+            .execute().data
 
         if exist:
             st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งแล้ว")
@@ -131,18 +128,34 @@ if mode == "✅ Scan Kanban":
 
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
-            "model_name": model,
-            "lot_no": lot_no
+            "model_name": row["model_name"],
+            "lot_no": row["lot_no"]
         }).execute()
 
-        st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban}")
+        st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban} สำเร็จ")
         st.session_state.scan = ""
 
-    st.text_input("Scan Kanban No.", key="scan", on_change=confirm_kanban)
+    # ===============================
+    # INPUT (AUTO)
+    # ===============================
+    st.text_input(
+        "Scan Kanban No.",
+        key="scan",
+        on_change=auto_scan,
+        autofocus=True
+    )
 
+    # ===============================
+    # MESSAGE
+    # ===============================
     if "msg" in st.session_state:
         t, m = st.session_state.msg
-        getattr(st, t)(m)
+        if t == "success":
+            st.success(m)
+        elif t == "warning":
+            st.warning(m)
+        else:
+            st.error(m)
         del st.session_state.msg
 
 # =====================================================
@@ -375,5 +388,6 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
 
 
