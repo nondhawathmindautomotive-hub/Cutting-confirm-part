@@ -150,44 +150,38 @@ elif mode == "📊 Model Kanban Status":
 
     c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model")
-    lot_filter = c2.text_input("Lot (เช่น 251205)")
+    lot_filter = c2.text_input("Lot")
 
     # ===============================
     # LOAD LOT MASTER
     # ===============================
-    lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("model_name, kanban_no, lot_no")
-        .execute().data,
-        ["model_name", "kanban_no", "lot_no"]
-    )
+    lot_data = supabase.table("lot_master").select(
+        "model_name, kanban_no, lot_no"
+    ).execute().data
 
-    if lot_df.empty:
+    if not lot_data:
         st.warning("ไม่พบข้อมูลใน Lot Master")
         st.stop()
 
+    lot_df = pd.DataFrame(lot_data)
+
     # ===============================
-    # 🔥 CLEAN DATA (หัวใจของปัญหา)
+    # 🔥 FIX 100% : CAST LOT_NO → STRING
     # ===============================
     lot_df["lot_no"] = lot_df["lot_no"].astype(str).str.strip()
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
+    lot_df["model_name"] = lot_df["model_name"].astype(str)
 
     # ===============================
     # LOAD DELIVERY
     # ===============================
-    del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .execute().data,
-        ["kanban_no"]
-    )
+    del_data = supabase.table("kanban_delivery").select(
+        "kanban_no"
+    ).execute().data
 
-    if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-        del_df["sent"] = 1
-    else:
-        del_df = pd.DataFrame(columns=["kanban_no", "sent"])
+    del_df = pd.DataFrame(del_data) if del_data else pd.DataFrame(columns=["kanban_no"])
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str)
+    del_df["sent"] = 1
 
     # ===============================
     # MERGE
@@ -196,7 +190,7 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0)
 
     # ===============================
-    # FILTER (โรงงานจริง)
+    # FILTER
     # ===============================
     if model_filter:
         df = df[df["model_name"].str.contains(model_filter, case=False, na=False)]
@@ -214,7 +208,7 @@ elif mode == "📊 Model Kanban Status":
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Total_Kanban=("kanban_no", "nunique"),
+            Total_Kanban=("kanban_no", "count"),
             Sent=("sent", "sum")
         )
         .reset_index()
@@ -224,10 +218,12 @@ elif mode == "📊 Model Kanban Status":
 
     summary.rename(columns={
         "model_name": "Model",
-        "lot_no": "Lot"
+        "lot_no": "Lot",
+        "Total_Kanban": "Total Kanban"
     }, inplace=True)
 
     st.dataframe(summary, use_container_width=True)
+
 
 # =====================================================
 # 3) TRACKING SEARCH (❌ KEYERROR FIXED)
@@ -343,5 +339,6 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
