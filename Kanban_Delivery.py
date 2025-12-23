@@ -66,7 +66,7 @@ def norm(v):
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban (Auto + Joint)")
+    st.header("✅ Scan Kanban")
 
     def confirm_scan():
         kanban = norm(st.session_state.scan)
@@ -138,7 +138,7 @@ if mode == "✅ Scan Kanban":
                     f"✅ Joint COMPLETE {len(to_insert)} วงจร"
                 )
             else:
-                st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
+                st.session_state.msg = ("warning", ⚠️ Joint นี้ถูกส่งครบแล้ว")
 
             st.session_state.scan = ""
             return
@@ -178,9 +178,8 @@ if mode == "✅ Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
-
 # =====================================================
-# 2) MODEL KANBAN STATUS (COUNT REAL KANBAN)
+# 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -191,37 +190,49 @@ elif mode == "📊 Model Kanban Status":
     lot_filter = c2.text_input("Lot")
 
     # -----------------------------
-    # LOAD LOT MASTER
+    # LOAD LOT MASTER (USE REAL COLUMN)
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
         .execute()
-        .data,
-        ["model_name", "kanban_no", "lot_no"]
+        .data
     )
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูล lot master")
+        st.warning("ไม่พบข้อมูล lot_master")
         st.stop()
 
+    # -----------------------------
+    # CLEAN DATA
+    # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-    lot_df["lot_no"] = clean_series(lot_df["lot_no"])
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+
+    lot_df["lot_no"] = (
+        lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
+
+    lot_df["model_name"] = (
+        lot_df["model_name"]
+        .astype(str)
+        .str.strip()
+    )
 
     # -----------------------------
     # FILTER
     # -----------------------------
     if lot_filter:
         lot_df = lot_df[
-            lot_df["lot_no"] == str(lot_filter).strip()
+            lot_df["lot_no"] == lot_filter.strip()
         ]
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(
-                model_filter, case=False, na=False
-            )
+            lot_df["model_name"]
+            .str.contains(model_filter.strip(), case=False, na=False)
         ]
 
     if lot_df.empty:
@@ -229,7 +240,14 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # LOAD DELIVERY (SENT)
+    # UNIQUE KANBAN (CRITICAL)
+    # -----------------------------
+    lot_df = lot_df.drop_duplicates(
+        subset=["model_name", "lot_no", "kanban_no"]
+    )
+
+    # -----------------------------
+    # LOAD DELIVERY
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -250,39 +268,39 @@ elif mode == "📊 Model Kanban Status":
         on="kanban_no",
         how="left"
     )
-
-    df["sent"] = df["sent"].fillna(0)
+    df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # SUMMARY (COUNT REAL KANBAN)
+    # SUMMARY (✔ EXACT CSV COUNT)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Total=("kanban_no", "nunique"),  # ✅ นับ Kanban จริง
-            Sent=(
-                "kanban_no",
-                lambda x: x[
-                    df.loc[x.index, "sent"] == 1
-                ].nunique()
-            )
+            Total_Kanban=("kanban_no", "nunique"),
+            Sent=("sent", "sum")
         )
         .reset_index()
     )
 
-    summary["Remaining"] = summary["Total"] - summary["Sent"]
-
-    summary = summary.sort_values(
-        ["lot_no", "model_name"]
-    )
+    summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
     # -----------------------------
     # DISPLAY
     # -----------------------------
     st.dataframe(
-        summary,
+        summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
+
+    # -----------------------------
+    # DETAIL (PROOF 472)
+    # -----------------------------
+    with st.expander("📋 รายการ Kanban ที่ถูกนำมานับ"):
+        st.dataframe(
+            df.sort_values(["model_name", "kanban_no"]),
+            use_container_width=True
+        )
+
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -335,7 +353,7 @@ elif mode == "🔍 Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 4) UPLOAD LOT MASTER
+# 4) UPLOAD LOT MASTER (SAFE JSON + NO ERROR)
 # =====================================================
 elif mode == "🔐📤 Upload Lot Master":
 
@@ -348,24 +366,65 @@ elif mode == "🔐📤 Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
-        required = {
-            "lot_no", "kanban_no", "model_name",
-            "wire_number", "subpackage_number",
-            "wire_harness_code", "joint_a", "joint_b"
-        }
+        required = [
+            "lot_no",
+            "kanban_no",
+            "model_name",
+            "wire_number",
+            "subpackage_number",
+            "wire_harness_code",
+            "joint_a",
+            "joint_b",
+        ]
 
-        if not required.issubset(df.columns):
-            st.error(f"❌ ต้องมี column: {required}")
+        # -----------------------------
+        # CHECK COLUMN
+        # -----------------------------
+        missing = set(required) - set(df.columns)
+        if missing:
+            st.error(f"❌ ขาด column: {missing}")
             st.stop()
 
-        df["lot_no"] = clean_series(df["lot_no"])
+        # -----------------------------
+        # CLEAN DATA (🔥 FIX ERROR HERE)
+        # -----------------------------
+        df = df[required].copy()
 
-        if st.button("🚀 Upload"):
-            supabase.table("lot_master").upsert(
-                df[list(required)].to_dict("records")
-            ).execute()
+        # แปลง NaN → ""
+        df = df.fillna("")
 
-            st.success(f"✅ Upload {len(df)} records")
+        # แปลงทุก column เป็น string
+        for c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+        # แก้ lot_no ที่เป็น 251203.0
+        df["lot_no"] = (
+            df["lot_no"]
+            .str.replace(r"\.0$", "", regex=True)
+            .str.strip()
+        )
+
+        # -----------------------------
+        # PREVIEW
+        # -----------------------------
+        st.subheader("📄 Preview (10 rows)")
+        st.dataframe(df.head(10), use_container_width=True)
+
+        # -----------------------------
+        # UPLOAD
+        # -----------------------------
+        if st.button("🚀 Upload to Supabase"):
+            try:
+                supabase.table("lot_master").upsert(
+                    df.to_dict("records")
+                ).execute()
+
+                st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
+            except Exception as e:
+                st.error("❌ Upload ไม่สำเร็จ")
+                st.exception(e)
+
 
 
 
