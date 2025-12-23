@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (COUNT REAL KANBAN)
+# 2) MODEL KANBAN STATUS (COUNT REAL KANBAN + SHOW COUNT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -254,12 +254,13 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0)
 
     # -----------------------------
-    # SUMMARY (COUNT REAL KANBAN)
+    # SUMMARY
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Total=("kanban_no", "nunique"),  # ✅ นับ Kanban จริง
+            Kanban_Count=("kanban_no", "nunique"),   # ✅ ช่องใหม่
+            Total=("kanban_no", "nunique"),
             Sent=(
                 "kanban_no",
                 lambda x: x[
@@ -366,5 +367,6 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
