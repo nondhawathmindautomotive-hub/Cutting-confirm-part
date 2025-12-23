@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (COUNT REAL KANBAN + SHOW COUNT)
+# 2) MODEL KANBAN STATUS (FIX TOTAL = REAL KANBAN COUNT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -202,7 +202,7 @@ elif mode == "📊 Model Kanban Status":
     )
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูล lot master")
+        st.warning("ไม่พบข้อมูล")
         st.stop()
 
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
@@ -213,9 +213,7 @@ elif mode == "📊 Model Kanban Status":
     # FILTER
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[
-            lot_df["lot_no"] == str(lot_filter).strip()
-        ]
+        lot_df = lot_df[lot_df["lot_no"] == str(lot_filter).strip()]
 
     if model_filter:
         lot_df = lot_df[
@@ -229,7 +227,7 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # LOAD DELIVERY (SENT)
+    # LOAD DELIVERY
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -240,10 +238,10 @@ elif mode == "📊 Model Kanban Status":
     )
 
     del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-    del_df["sent"] = 1
+    del_df["is_sent"] = True
 
     # -----------------------------
-    # MERGE
+    # MERGE SENT FLAG
     # -----------------------------
     df = lot_df.merge(
         del_df,
@@ -251,39 +249,28 @@ elif mode == "📊 Model Kanban Status":
         how="left"
     )
 
-    df["sent"] = df["sent"].fillna(0)
+    df["is_sent"] = df["is_sent"].fillna(False)
 
     # -----------------------------
-    # SUMMARY
+    # SUMMARY (EXCEL LOGIC)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Kanban_Count=("kanban_no", "nunique"),   # ✅ ช่องใหม่
+            Kanban_Count=("kanban_no", "nunique"),   # 👈 เท่ากับ Excel
             Total=("kanban_no", "nunique"),
-            Sent=(
-                "kanban_no",
-                lambda x: x[
-                    df.loc[x.index, "sent"] == 1
-                ].nunique()
-            )
+            Sent=("kanban_no", lambda x: x[df.loc[x.index, "is_sent"]].nunique())
         )
         .reset_index()
     )
 
     summary["Remaining"] = summary["Total"] - summary["Sent"]
 
-    summary = summary.sort_values(
-        ["lot_no", "model_name"]
-    )
-
-    # -----------------------------
-    # DISPLAY
-    # -----------------------------
     st.dataframe(
-        summary,
+        summary.sort_values(["lot_no", "model_name"]),
         use_container_width=True
     )
+
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -367,6 +354,7 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
 
