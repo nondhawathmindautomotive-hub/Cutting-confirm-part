@@ -178,23 +178,26 @@ if mode == "✅ Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
-# =====================================================
-# 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
-# =====================================================
 elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
     lot_filter = c2.text_input("Lot")
+    limit = c3.selectbox(
+        "🔢 จำนวนข้อมูลสูงสุด",
+        [10, 100, 1000, 10000, 100000],
+        index=2  # default = 1000
+    )
 
     # -----------------------------
-    # LOAD LOT MASTER (USE REAL COLUMN)
+    # LOAD LOT MASTER (LIMIT)
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
+        .range(0, limit - 1)
         .execute()
         .data
     )
@@ -207,14 +210,12 @@ elif mode == "📊 Model Kanban Status":
     # CLEAN DATA
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-
     lot_df["lot_no"] = (
         lot_df["lot_no"]
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.strip()
     )
-
     lot_df["model_name"] = (
         lot_df["model_name"]
         .astype(str)
@@ -225,9 +226,7 @@ elif mode == "📊 Model Kanban Status":
     # FILTER
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[
-            lot_df["lot_no"] == lot_filter.strip()
-        ]
+        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
 
     if model_filter:
         lot_df = lot_df[
@@ -247,11 +246,12 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
-    # LOAD DELIVERY
+    # LOAD DELIVERY (LIMIT)
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
+        .range(0, limit - 1)
         .execute()
         .data,
         ["kanban_no"]
@@ -271,7 +271,7 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # SUMMARY (✔ EXACT CSV COUNT)
+    # SUMMARY (COUNT FROM kanban_no)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
@@ -284,16 +284,15 @@ elif mode == "📊 Model Kanban Status":
 
     summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
-    # -----------------------------
-    # DISPLAY
-    # -----------------------------
+    st.caption(f"แสดงข้อมูลสูงสุด {limit:,} รายการ")
+
     st.dataframe(
         summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
 
     # -----------------------------
-    # DETAIL (PROOF 472)
+    # DETAIL VIEW
     # -----------------------------
     with st.expander("📋 รายการ Kanban ที่ถูกนำมานับ"):
         st.dataframe(
@@ -301,10 +300,6 @@ elif mode == "📊 Model Kanban Status":
             use_container_width=True
         )
 
-
-# =====================================================
-# 3) TRACKING SEARCH (GMT+7 + JOINT)
-# =====================================================
 elif mode == "🔍 Tracking Search":
 
     st.header("🔍 Tracking Search")
@@ -319,8 +314,26 @@ elif mode == "🔍 Tracking Search":
     harness = c5.text_input("Wire Harness Code")
     lot = c6.text_input("Lot No.")
 
+    limit = st.selectbox(
+        "🔢 จำนวนรายการที่แสดง",
+        [10, 100, 1000, 10000, 100000],
+        index=1  # default = 100
+    )
+
+    # -----------------------------
+    # BUILD QUERY
+    # -----------------------------
     query = supabase.table("lot_master").select(
-        "kanban_no, model_name, wire_number, subpackage_number, wire_harness_code, lot_no, joint_a, joint_b"
+        """
+        kanban_no,
+        model_name,
+        wire_number,
+        subpackage_number,
+        wire_harness_code,
+        lot_no,
+        joint_a,
+        joint_b
+        """
     )
 
     if kanban:
@@ -336,20 +349,45 @@ elif mode == "🔍 Tracking Search":
     if lot:
         query = query.ilike("lot_no", f"%{lot}%")
 
-    lot_df = safe_df(query.execute().data)
+    # -----------------------------
+    # EXECUTE WITH LIMIT
+    # -----------------------------
+    lot_df = safe_df(
+        query
+        .range(0, limit - 1)
+        .execute()
+        .data
+    )
 
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล")
+        st.stop()
+
+    # -----------------------------
+    # LOAD DELIVERY
+    # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
+        .range(0, limit - 1)
         .execute()
         .data,
         ["kanban_no", "created_at"]
     )
 
-    del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
-    del_df = del_df.drop(columns=["created_at"])
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
 
-    df = lot_df.merge(del_df, on="kanban_no", how="left")
+    # -----------------------------
+    # MERGE & DISPLAY
+    # -----------------------------
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
+    st.caption(f"แสดงข้อมูลสูงสุด {limit:,} รายการ")
+
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
@@ -424,6 +462,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
