@@ -276,7 +276,7 @@ elif mode == "📊 Model Kanban Status":
     # SUMMARY (✔ TOTAL = COUNT KANBAN_NO)
     # -----------------------------
     summary = (
-        df.groupby(["model_key", "lot_no"])
+        df.groupby(["model_group", "lot_no"])
         .agg(
             Total_Kanban=("kanban_no", "nunique"),
             Sent=("sent", "sum")
@@ -284,7 +284,7 @@ elif mode == "📊 Model Kanban Status":
         .reset_index()
     )
 
-    summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
+summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
     # -----------------------------
     # DISPLAY
@@ -425,6 +425,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
