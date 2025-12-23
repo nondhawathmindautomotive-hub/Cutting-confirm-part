@@ -5,7 +5,10 @@ import pandas as pd
 # =====================================================
 # CONFIG
 # =====================================================
-st.set_page_config(page_title="Kanban Delivery Tracking", layout="wide")
+st.set_page_config(
+    page_title="Kanban Delivery - MIND Automotive",
+    layout="wide"
+)
 
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
@@ -30,124 +33,109 @@ mode = st.sidebar.radio(
 # =====================================================
 # HELPER
 # =====================================================
-def safe_df(data, columns):
+def safe_df(data, cols):
     if data:
         return pd.DataFrame(data)
-    return pd.DataFrame(columns=columns)
+    return pd.DataFrame(columns=cols)
 
-def clean_lot(df):
-    df["lot_no"] = (
-        df["lot_no"]
+def clean_str(s):
+    return (
+        pd.Series(s)
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.strip()
     )
-    return df
 
 # =====================================================
-# 1) SCAN KANBAN (AUTO / JOINT COMPLETE)
+# 1) SCAN KANBAN (AUTO + JOINT)
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban (Auto Confirm)")
+    st.header("✅ Scan Kanban (Auto + Joint)")
+    joint_mode = st.toggle("🔗 Joint Mode", value=True)
 
-    joint_mode = st.toggle("🔗 Joint Delivery (ทั้ง Lot)", value=True)
-
-    def auto_scan():
+    def confirm_scan():
         kanban = st.session_state.scan.strip()
         if not kanban:
             return
 
-        lot = (
-            supabase.table("lot_master")
-            .select("kanban_no, model_name, lot_no")
-            .eq("kanban_no", kanban)
-            .limit(1)
-            .execute()
-            .data
-        )
+        # --- lookup scanned kanban ---
+        base = supabase.table("lot_master").select(
+            "kanban_no, model_name, lot_no, joint_a, joint_b"
+        ).eq("kanban_no", kanban).limit(1).execute().data
 
-        if not lot:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban นี้")
+        if not base:
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban")
             st.session_state.scan = ""
             return
 
-        model = lot[0]["model_name"]
-        lot_no = str(lot[0]["lot_no"]).replace(".0", "").strip()
+        row = base[0]
+        model = str(row["model_name"])
+        lot = str(row["lot_no"]).replace(".0", "").strip()
 
-        # ================= JOINT =================
-        if joint_mode:
-            all_k = (
-                supabase.table("lot_master")
-                .select("kanban_no")
-                .eq("model_name", model)
-                .eq("lot_no", lot_no)
-                .execute()
-                .data
-            )
+        joint = row.get("joint_a") or row.get("joint_b")
 
-            all_list = [x["kanban_no"] for x in all_k]
+        # =================================================
+        # JOINT MODE
+        # =================================================
+        if joint_mode and joint:
 
-            sent = safe_df(
-                supabase.table("kanban_delivery")
-                .select("kanban_no")
-                .in_("kanban_no", all_list)
-                .execute()
-                .data,
-                ["kanban_no"]
-            )
+            all_joint = supabase.table("lot_master").select(
+                "kanban_no"
+            ).eq("model_name", model) \
+             .eq("lot_no", lot) \
+             .or_(f"joint_a.eq.{joint},joint_b.eq.{joint}") \
+             .execute().data
 
-            sent_set = set(sent["kanban_no"])
+            joint_list = [x["kanban_no"] for x in all_joint]
 
-            insert_rows = [
+            sent = supabase.table("kanban_delivery").select(
+                "kanban_no"
+            ).in_("kanban_no", joint_list).execute().data
+
+            sent_set = {x["kanban_no"] for x in sent}
+
+            to_insert = [
                 {
                     "kanban_no": k,
                     "model_name": model,
-                    "lot_no": lot_no
+                    "lot_no": lot
                 }
-                for k in all_list if k not in sent_set
+                for k in joint_list if k not in sent_set
             ]
 
-            if insert_rows:
-                supabase.table("kanban_delivery").insert(insert_rows).execute()
-                st.session_state.msg = (
-                    "success",
-                    f"✅ Joint COMPLETE {len(insert_rows)} ใบ | {model} | Lot {lot_no}"
-                )
-            else:
-                st.session_state.msg = ("warning", "⚠️ Lot นี้ส่งครบแล้ว")
+            if to_insert:
+                supabase.table("kanban_delivery").insert(to_insert).execute()
 
+            st.session_state.msg = (
+                "success",
+                f"✅ Joint COMPLETE : {joint} | {len(to_insert)} ใบ"
+            )
             st.session_state.scan = ""
             return
 
-        # ================= NORMAL =================
-        exist = (
-            supabase.table("kanban_delivery")
-            .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .execute()
-            .data
-        )
+        # =================================================
+        # NORMAL MODE
+        # =================================================
+        exist = supabase.table("kanban_delivery").select(
+            "kanban_no"
+        ).eq("kanban_no", kanban).execute().data
 
         if exist:
-            st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งแล้ว")
+            st.session_state.msg = ("warning", "⚠️ ส่งแล้ว")
             st.session_state.scan = ""
             return
 
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
             "model_name": model,
-            "lot_no": lot_no
+            "lot_no": lot
         }).execute()
 
-        st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban}")
+        st.session_state.msg = ("success", f"✅ ส่ง {kanban}")
         st.session_state.scan = ""
 
-    st.text_input(
-        "Scan Kanban No.",
-        key="scan",
-        on_change=auto_scan
-    )
+    st.text_input("Scan Kanban No.", key="scan", on_change=confirm_scan)
 
     if "msg" in st.session_state:
         t, m = st.session_state.msg
@@ -155,7 +143,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (LOT → SHOW ALL MODELS)
+# 2) MODEL KANBAN STATUS (LOT = SHOW ALL MODELS)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -163,25 +151,31 @@ elif mode == "📊 Model Kanban Status":
 
     c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
-    lot_filter = c2.text_input("Lot")
+    lot_filter = c2.text_input("Lot (เช่น 251205)")
+
+    query = supabase.table("lot_master").select(
+        "model_name, kanban_no, lot_no"
+    )
+
+    if lot_filter:
+        query = query.eq("lot_no", lot_filter.strip())
+
+    if model_filter:
+        query = query.ilike("model_name", f"%{model_filter}%")
 
     lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("model_name, kanban_no, lot_no")
-        .execute()
-        .data,
+        query.execute().data,
         ["model_name", "kanban_no", "lot_no"]
     )
 
-    lot_df = clean_lot(lot_df)
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
-    lot_df["model_name"] = lot_df["model_name"].astype(str)
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล")
+        st.stop()
 
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
-        .execute()
-        .data,
+        .execute().data,
         ["kanban_no"]
     )
     del_df["sent"] = 1
@@ -189,27 +183,16 @@ elif mode == "📊 Model Kanban Status":
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     df["sent"] = df["sent"].fillna(0)
 
-    if lot_filter:
-        df = df[df["lot_no"] == lot_filter.strip()]
-
-    if model_filter:
-        df = df[df["model_name"].str.contains(model_filter, case=False)]
-
     summary = (
-        df.groupby(["model_name", "lot_no"], as_index=False)
+        df.groupby(["model_name", "lot_no"])
         .agg(
             Total_Kanban=("kanban_no", "count"),
             Sent=("sent", "sum")
         )
+        .reset_index()
     )
 
     summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
-
-    summary.rename(columns={
-        "model_name": "Model",
-        "lot_no": "Lot",
-        "Total_Kanban": "Total Kanban"
-    }, inplace=True)
 
     st.dataframe(summary, use_container_width=True)
 
@@ -226,72 +209,44 @@ elif mode == "🔍 Tracking Search":
     kanban = c1.text_input("Kanban No.")
     model = c2.text_input("Model")
     wire = c3.text_input("Wire Number")
-    subpackage = c4.text_input("Subpackage Number")
-    harness = c5.text_input("Wire Harness Code")
+    subp = c4.text_input("Subpackage")
+    harness = c5.text_input("Harness Code")
     lot = c6.text_input("Lot No.")
 
-    lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("""
-            kanban_no,
-            model_name,
-            wire_number,
-            subpackage_number,
-            wire_harness_code,
-            lot_no,
-            joint_a,
-            joint_b
-        """)
-        .execute()
-        .data,
-        [
-            "kanban_no","model_name","wire_number",
-            "subpackage_number","wire_harness_code",
-            "lot_no","joint_a","joint_b"
-        ]
+    query = supabase.table("lot_master").select(
+        "kanban_no, model_name, wire_number, subpackage_number, wire_harness_code, lot_no, joint_a, joint_b"
     )
 
-    lot_df = clean_lot(lot_df)
+    if kanban:
+        query = query.ilike("kanban_no", f"%{kanban}%")
+    if model:
+        query = query.ilike("model_name", f"%{model}%")
+    if wire:
+        query = query.ilike("wire_number", f"%{wire}%")
+    if subp:
+        query = query.ilike("subpackage_number", f"%{subp}%")
+    if harness:
+        query = query.ilike("wire_harness_code", f"%{harness}%")
+    if lot:
+        query = query.ilike("lot_no", f"%{lot}%")
+
+    lot_df = safe_df(
+        query.execute().data,
+        []
+    )
 
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
-        .execute()
-        .data,
-        ["kanban_no","created_at"]
+        .execute().data,
+        ["kanban_no", "created_at"]
     )
 
-    df = lot_df.merge(del_df, on="kanban_no", how="left")
-
-    if kanban:
-        df = df[df["kanban_no"].str.contains(kanban)]
-    if model:
-        df = df[df["model_name"].str.contains(model, case=False)]
-    if wire:
-        df = df[df["wire_number"].str.contains(wire)]
-    if subpackage:
-        df = df[df["subpackage_number"].str.contains(subpackage)]
-    if harness:
-        df = df[df["wire_harness_code"].str.contains(harness)]
-    if lot:
-        df = df[df["lot_no"].str.contains(lot)]
-
-    if df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล")
         st.stop()
 
-    df.rename(columns={
-        "kanban_no": "Kanban No",
-        "model_name": "Model",
-        "wire_number": "Wire",
-        "subpackage_number": "Subpackage",
-        "wire_harness_code": "Harness Code",
-        "lot_no": "Lot",
-        "created_at": "Delivered At",
-        "joint_a": "Joint A",
-        "joint_b": "Joint B"
-    }, inplace=True)
-
+    df = lot_df.merge(del_df, on="kanban_no", how="left")
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
@@ -309,19 +264,20 @@ elif mode == "🔐📤 Upload Lot Master":
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
         required = {
-            "lot_no","kanban_no","model_name",
-            "wire_number","subpackage_number",
-            "wire_harness_code","joint_a","joint_b"
+            "lot_no", "kanban_no", "model_name",
+            "wire_number", "subpackage_number",
+            "wire_harness_code", "joint_a", "joint_b"
         }
 
         if not required.issubset(df.columns):
             st.error(f"❌ ต้องมี column: {required}")
             st.stop()
 
-        df["lot_no"] = df["lot_no"].astype(str).str.replace(".0","").str.strip()
+        df["lot_no"] = clean_str(df["lot_no"])
 
         if st.button("🚀 Upload"):
             supabase.table("lot_master").upsert(
                 df[list(required)].to_dict("records")
             ).execute()
+
             st.success(f"✅ Upload {len(df)} records")
