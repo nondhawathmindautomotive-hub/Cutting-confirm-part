@@ -51,7 +51,7 @@ def clean_series(s):
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban (Auto Joint)")
+    st.header("✅ Scan Kanban")
 
     def confirm_scan():
         kanban = st.session_state.scan.strip()
@@ -291,3 +291,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
