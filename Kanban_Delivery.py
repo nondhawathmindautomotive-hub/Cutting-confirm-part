@@ -336,7 +336,7 @@ elif mode == "🔍 Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 4) UPLOAD LOT MASTER
+# 4) UPLOAD LOT MASTER (SAFE JSON + NO ERROR)
 # =====================================================
 elif mode == "🔐📤 Upload Lot Master":
 
@@ -349,24 +349,64 @@ elif mode == "🔐📤 Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
-        required = {
-            "lot_no", "kanban_no", "model_name",
-            "wire_number", "subpackage_number",
-            "wire_harness_code", "joint_a", "joint_b"
-        }
+        required = [
+            "lot_no",
+            "kanban_no",
+            "model_name",
+            "wire_number",
+            "subpackage_number",
+            "wire_harness_code",
+            "joint_a",
+            "joint_b",
+        ]
 
-        if not required.issubset(df.columns):
-            st.error(f"❌ ต้องมี column: {required}")
+        # -----------------------------
+        # CHECK COLUMN
+        # -----------------------------
+        missing = set(required) - set(df.columns)
+        if missing:
+            st.error(f"❌ ขาด column: {missing}")
             st.stop()
 
-        df["lot_no"] = clean_series(df["lot_no"])
+        # -----------------------------
+        # CLEAN DATA (🔥 FIX ERROR HERE)
+        # -----------------------------
+        df = df[required].copy()
 
-        if st.button("🚀 Upload"):
-            supabase.table("lot_master").upsert(
-                df[list(required)].to_dict("records")
-            ).execute()
+        # แปลง NaN → ""
+        df = df.fillna("")
 
-            st.success(f"✅ Upload {len(df)} records")
+        # แปลงทุก column เป็น string
+        for c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+        # แก้ lot_no ที่เป็น 251203.0
+        df["lot_no"] = (
+            df["lot_no"]
+            .str.replace(r"\.0$", "", regex=True)
+            .str.strip()
+        )
+
+        # -----------------------------
+        # PREVIEW
+        # -----------------------------
+        st.subheader("📄 Preview (10 rows)")
+        st.dataframe(df.head(10), use_container_width=True)
+
+        # -----------------------------
+        # UPLOAD
+        # -----------------------------
+        if st.button("🚀 Upload to Supabase"):
+            try:
+                supabase.table("lot_master").upsert(
+                    df.to_dict("records")
+                ).execute()
+
+                st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
+            except Exception as e:
+                st.error("❌ Upload ไม่สำเร็จ")
+                st.exception(e)
 
 
 
