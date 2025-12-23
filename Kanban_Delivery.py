@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (FIX TOTAL = REAL KANBAN)
+# 2) MODEL KANBAN STATUS (ROBUST LOT FILTER)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -205,7 +205,7 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # CLEAN DATA
+    # CLEAN DATA (CRITICAL)
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
@@ -217,10 +217,16 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
-    # FILTER
+    # FILTER (🔥 FIX LOT)
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
+        lot_df = lot_df[
+            lot_df["lot_no"].str.contains(
+                lot_filter.strip(),
+                case=False,
+                na=False
+            )
+        ]
 
     if model_filter:
         lot_df = lot_df[
@@ -234,7 +240,6 @@ elif mode == "📊 Model Kanban Status":
 
     # -----------------------------
     # REMOVE DUPLICATE KANBAN
-    # 🔥 สำคัญที่สุด
     # -----------------------------
     lot_df = lot_df.drop_duplicates(
         subset=["model_name", "lot_no", "kanban_no"]
@@ -262,16 +267,15 @@ elif mode == "📊 Model Kanban Status":
         on="kanban_no",
         how="left"
     )
-
     df["sent"] = df["sent"].fillna(0)
 
     # -----------------------------
-    # SUMMARY (🔥 FIX COUNT)
+    # SUMMARY (CORRECT COUNT)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Total_Kanban=("kanban_no", "nunique"),  # ✅ 31
+            Total_Kanban=("kanban_no", "nunique"),
             Sent=("sent", "sum"),
         )
         .reset_index()
@@ -283,14 +287,14 @@ elif mode == "📊 Model Kanban Status":
     # DISPLAY
     # -----------------------------
     st.dataframe(
-        summary.sort_values(["model_name"]),
+        summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
 
     # -----------------------------
-    # DEBUG (OPTIONAL)
+    # DEBUG VIEW
     # -----------------------------
-    with st.expander("🔍 ดู kanban_no ทั้งหมด"):
+    with st.expander("🔍 ตรวจสอบ kanban_no ที่นำมานับ"):
         st.dataframe(
             df[["model_name", "lot_no", "kanban_no", "sent"]]
             .sort_values("kanban_no"),
@@ -419,6 +423,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
