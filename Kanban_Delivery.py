@@ -213,7 +213,7 @@ elif mode == "📊 Model Kanban Status":
     st.dataframe(summary, use_container_width=True)
 
 # =====================================================
-# 3) TRACKING SEARCH (DB SIDE 100%)
+# 3) TRACKING SEARCH (FINAL / NO KEYERROR)
 # =====================================================
 elif mode == "🔍 Tracking Search":
 
@@ -230,6 +230,9 @@ elif mode == "🔍 Tracking Search":
     harness = c5.text_input("Wire Harness Code")
     lot = c6.text_input("Lot No.")
 
+    # ===============================
+    # LOT MASTER (DB FILTER)
+    # ===============================
     query = supabase.table("lot_master").select("""
         kanban_no,
         model_name,
@@ -254,19 +257,33 @@ elif mode == "🔍 Tracking Search":
     if lot:
         query = query.ilike("lot_no", f"%{lot}%")
 
-    lot_df = pd.DataFrame(query.execute().data)
+    lot_data = query.execute().data
 
-    if lot_df.empty:
+    if not lot_data:
         st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
         st.stop()
 
-    del_df = pd.DataFrame(
+    lot_df = pd.DataFrame(lot_data)
+
+    # ===============================
+    # DELIVERY (🔥 FIX KEYERROR)
+    # ===============================
+    del_data = (
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
         .execute()
         .data
     )
 
+    if del_data:
+        del_df = pd.DataFrame(del_data)
+    else:
+        # 🔥 สำคัญที่สุด
+        del_df = pd.DataFrame(columns=["kanban_no", "created_at"])
+
+    # ===============================
+    # MERGE (SAFE)
+    # ===============================
     df = lot_df.merge(del_df, on="kanban_no", how="left")
 
     df.rename(columns={
@@ -330,3 +347,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
