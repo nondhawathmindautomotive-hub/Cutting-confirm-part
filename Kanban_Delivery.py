@@ -197,16 +197,33 @@ elif mode == "📊 Model Kanban Status":
         .data
     )
 
+    # -----------------------------
+    # CLEAN DATA
+    # -----------------------------
     lot_df["lot_no"] = clean_series(lot_df["lot_no"])
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
 
+    # ⭐ CREATE BASE MODEL (ตัด (L),(M),(L/M))
+    lot_df["base_model"] = (
+        lot_df["model_name"]
+        .str.replace(r"\(.*?\)", "", regex=True)
+        .str.strip()
+    )
+
     if lot_filter:
-        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
+        lot_df = lot_df[
+            lot_df["lot_no"] == lot_filter.strip()
+        ]
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(model_filter, case=False, na=False)
+            lot_df["base_model"]
+            .str.contains(model_filter, case=False, na=False)
         ]
+
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล")
+        st.stop()
 
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -220,8 +237,11 @@ elif mode == "📊 Model Kanban Status":
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     df["sent"] = df["sent"].fillna(0)
 
+    # -----------------------------
+    # GROUP BY BASE MODEL
+    # -----------------------------
     summary = (
-        df.groupby(["model_name", "lot_no"])
+        df.groupby(["base_model", "lot_no"])
         .agg(
             Total=("kanban_no", "count"),
             Sent=("sent", "sum")
@@ -230,6 +250,11 @@ elif mode == "📊 Model Kanban Status":
     )
 
     summary["Remaining"] = summary["Total"] - summary["Sent"]
+
+    summary.rename(columns={
+        "base_model": "Model",
+        "lot_no": "Lot"
+    }, inplace=True)
 
     st.dataframe(summary, use_container_width=True)
 
@@ -315,3 +340,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
