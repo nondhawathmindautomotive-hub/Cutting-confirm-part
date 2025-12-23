@@ -66,7 +66,7 @@ def norm(v):
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban (Auto + Joint)")
+    st.header("✅ Scan Kanban")
 
     def confirm_scan():
         kanban = norm(st.session_state.scan)
@@ -424,6 +424,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
