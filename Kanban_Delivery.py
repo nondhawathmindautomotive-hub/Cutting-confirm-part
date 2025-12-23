@@ -54,7 +54,7 @@ def norm(v):
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban (Auto Joint – Safe Mode)")
+    st.header("✅ Scan Kanban")
 
     def confirm_scan():
         kanban = norm(st.session_state.scan)
@@ -347,5 +347,6 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
 
