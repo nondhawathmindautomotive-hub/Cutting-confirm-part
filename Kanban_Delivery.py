@@ -138,7 +138,7 @@ if mode == "✅ Scan Kanban":
                     f"✅ Joint COMPLETE {len(to_insert)} วงจร"
                 )
             else:
-                st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
+                st.session_state.msg = ("warning", ⚠️ Joint นี้ถูกส่งครบแล้ว")
 
             st.session_state.scan = ""
             return
@@ -178,26 +178,23 @@ if mode == "✅ Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+# =====================================================
+# 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
+# =====================================================
 elif mode == "📊 Model Kanban Status":
 
     st.header("📊 Model Kanban Status")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
     lot_filter = c2.text_input("Lot")
-    limit = c3.selectbox(
-        "🔢 จำนวนข้อมูลสูงสุด",
-        [10, 100, 1000, 10000, 100000],
-        index=2  # default = 1000
-    )
 
     # -----------------------------
-    # LOAD LOT MASTER (LIMIT)
+    # LOAD LOT MASTER (USE REAL COLUMN)
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
-        .range(0, limit - 1)
         .execute()
         .data
     )
@@ -210,12 +207,14 @@ elif mode == "📊 Model Kanban Status":
     # CLEAN DATA
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+
     lot_df["lot_no"] = (
         lot_df["lot_no"]
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.strip()
     )
+
     lot_df["model_name"] = (
         lot_df["model_name"]
         .astype(str)
@@ -226,7 +225,9 @@ elif mode == "📊 Model Kanban Status":
     # FILTER
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
+        lot_df = lot_df[
+            lot_df["lot_no"] == lot_filter.strip()
+        ]
 
     if model_filter:
         lot_df = lot_df[
@@ -246,12 +247,11 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
-    # LOAD DELIVERY (LIMIT)
+    # LOAD DELIVERY
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
-        .range(0, limit - 1)
         .execute()
         .data,
         ["kanban_no"]
@@ -271,7 +271,7 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # SUMMARY (COUNT FROM kanban_no)
+    # SUMMARY (✔ EXACT CSV COUNT)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
@@ -284,15 +284,49 @@ elif mode == "📊 Model Kanban Status":
 
     summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
-    st.caption(f"แสดงข้อมูลสูงสุด {limit:,} รายการ")
-
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
     st.dataframe(
         summary.sort_values(["model_name", "lot_no"]),
         use_container_width=True
     )
+    # =================================================
+    # EXPORT MODEL KANBAN STATUS
+    # =================================================
+    st.markdown("### 📤 Export Model Kanban Status")
+
+    export_mode = st.radio(
+        "เลือกข้อมูลที่ต้องการ Export",
+        ["เฉพาะข้อมูลที่แสดง", "ทั้งหมด"],
+        horizontal=True,
+        key="export_model_status"
+    )
+
+    if export_mode == "ทั้งหมด":
+        export_df = summary.copy()
+    else:
+        export_df = summary.copy()  # ตัวเดียวกับที่ filter แล้ว
+
+    from io import BytesIO
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        export_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Model_Kanban_Status"
+        )
+
+    st.download_button(
+        label="⬇️ Download Excel",
+        data=buffer.getvalue(),
+        file_name="model_kanban_status.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     # -----------------------------
-    # DETAIL VIEW
+    # DETAIL (PROOF 472)
     # -----------------------------
     with st.expander("📋 รายการ Kanban ที่ถูกนำมานับ"):
         st.dataframe(
@@ -300,6 +334,10 @@ elif mode == "📊 Model Kanban Status":
             use_container_width=True
         )
 
+
+# =====================================================
+# 3) TRACKING SEARCH (GMT+7 + JOINT)
+# =====================================================
 elif mode == "🔍 Tracking Search":
 
     st.header("🔍 Tracking Search")
@@ -314,26 +352,8 @@ elif mode == "🔍 Tracking Search":
     harness = c5.text_input("Wire Harness Code")
     lot = c6.text_input("Lot No.")
 
-    limit = st.selectbox(
-        "🔢 จำนวนรายการที่แสดง",
-        [10, 100, 1000, 10000, 100000],
-        index=1  # default = 100
-    )
-
-    # -----------------------------
-    # BUILD QUERY
-    # -----------------------------
     query = supabase.table("lot_master").select(
-        """
-        kanban_no,
-        model_name,
-        wire_number,
-        subpackage_number,
-        wire_harness_code,
-        lot_no,
-        joint_a,
-        joint_b
-        """
+        "kanban_no, model_name, wire_number, subpackage_number, wire_harness_code, lot_no, joint_a, joint_b"
     )
 
     if kanban:
@@ -349,46 +369,69 @@ elif mode == "🔍 Tracking Search":
     if lot:
         query = query.ilike("lot_no", f"%{lot}%")
 
-    # -----------------------------
-    # EXECUTE WITH LIMIT
-    # -----------------------------
-    lot_df = safe_df(
-        query
-        .range(0, limit - 1)
-        .execute()
-        .data
-    )
+    lot_df = safe_df(query.execute().data)
 
-    if lot_df.empty:
-        st.warning("ไม่พบข้อมูล")
-        st.stop()
-
-    # -----------------------------
-    # LOAD DELIVERY
-    # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
-        .range(0, limit - 1)
         .execute()
         .data,
         ["kanban_no", "created_at"]
     )
 
-    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+    del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
+    del_df = del_df.drop(columns=["created_at"])
 
-    # -----------------------------
-    # MERGE & DISPLAY
-    # -----------------------------
-    df = lot_df.merge(
-        del_df,
-        on="kanban_no",
-        how="left"
+    df = lot_df.merge(del_df, on="kanban_no", how="left")
+    st.dataframe(df, use_container_width=True)
+        # =================================================
+    # EXPORT TRACKING SEARCH
+    # =================================================
+    st.markdown("### 📤 Export Tracking Result")
+
+    export_mode = st.radio(
+        "เลือกข้อมูลที่ต้องการ Export",
+        ["เฉพาะผลการค้นหา", "ทั้งหมด"],
+        horizontal=True,
+        key="export_tracking"
     )
 
-    st.caption(f"แสดงข้อมูลสูงสุด {limit:,} รายการ")
+    if export_mode == "ทั้งหมด":
+        export_df = safe_df(
+            supabase.table("lot_master")
+            .select("""
+                kanban_no,
+                model_name,
+                wire_number,
+                subpackage_number,
+                wire_harness_code,
+                lot_no,
+                joint_a,
+                joint_b
+            """)
+            .execute()
+            .data
+        )
+    else:
+        export_df = df.copy()
 
-    st.dataframe(df, use_container_width=True)
+    from io import BytesIO
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        export_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Tracking_Search"
+        )
+
+    st.download_button(
+        label="⬇️ Download Excel",
+        data=buffer.getvalue(),
+        file_name="tracking_search.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 
 # =====================================================
 # 4) UPLOAD LOT MASTER (SAFE JSON + NO ERROR)
