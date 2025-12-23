@@ -180,7 +180,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (FIXED TOTAL + NO REGEX)
+# 2) MODEL KANBAN STATUS (FIX TOTAL = REAL KANBAN)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -188,7 +188,7 @@ elif mode == "📊 Model Kanban Status":
 
     c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model (ไม่จำเป็น)")
-    lot_filter = c2.text_input("Lot (เช่น 251203)")
+    lot_filter = c2.text_input("Lot")
 
     # -----------------------------
     # LOAD LOT MASTER
@@ -207,40 +207,41 @@ elif mode == "📊 Model Kanban Status":
     # -----------------------------
     # CLEAN DATA
     # -----------------------------
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-    lot_df["lot_no"] = clean_series(lot_df["lot_no"])
+    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+    lot_df["lot_no"] = (
+        lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
 
     # -----------------------------
-    # FILTER LOT (EXACT MATCH)
+    # FILTER
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[
-            lot_df["lot_no"] == str(lot_filter).strip()
-        ]
+        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
 
-    # -----------------------------
-    # FILTER MODEL (EXACT STRING)
-    # ❗ NO REGEX → (L) (M) SAFE
-    # -----------------------------
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_name"] == model_filter.strip()
+            lot_df["model_name"]
+            .str.contains(model_filter, case=False, na=False)
         ]
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่เลือก")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
     # -----------------------------
     # REMOVE DUPLICATE KANBAN
+    # 🔥 สำคัญที่สุด
     # -----------------------------
     lot_df = lot_df.drop_duplicates(
-        subset=["kanban_no"]
+        subset=["model_name", "lot_no", "kanban_no"]
     )
 
     # -----------------------------
-    # LOAD DELIVERY DATA
+    # LOAD DELIVERY
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -254,36 +255,47 @@ elif mode == "📊 Model Kanban Status":
     del_df["sent"] = 1
 
     # -----------------------------
-    # MERGE STATUS
+    # MERGE
     # -----------------------------
     df = lot_df.merge(
         del_df,
         on="kanban_no",
         how="left"
     )
+
     df["sent"] = df["sent"].fillna(0)
 
     # -----------------------------
-    # SUMMARY (KANBAN COUNT REAL)
+    # SUMMARY (🔥 FIX COUNT)
     # -----------------------------
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Kanban_Count=("kanban_no", "nunique"),
-            Sent=("sent", "sum")
+            Total_Kanban=("kanban_no", "nunique"),  # ✅ 31
+            Sent=("sent", "sum"),
         )
         .reset_index()
     )
 
-    summary["Remaining"] = summary["Kanban_Count"] - summary["Sent"]
+    summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
     # -----------------------------
     # DISPLAY
     # -----------------------------
     st.dataframe(
-        summary.sort_values(["lot_no", "model_name"]),
+        summary.sort_values(["model_name"]),
         use_container_width=True
     )
+
+    # -----------------------------
+    # DEBUG (OPTIONAL)
+    # -----------------------------
+    with st.expander("🔍 ดู kanban_no ทั้งหมด"):
+        st.dataframe(
+            df[["model_name", "lot_no", "kanban_no", "sent"]]
+            .sort_values("kanban_no"),
+            use_container_width=True
+        )
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -407,6 +419,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
