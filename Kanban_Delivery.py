@@ -174,7 +174,9 @@ elif mode == "📊 Model Kanban Status":
     lot_df["lot_no"] = clean_series(lot_df["lot_no"])
 
     if lot_filter:
-        lot_df = lot_df[lot_df["lot_no"] == lot_filter.strip()]
+        lot_df = lot_df[lot_df["lot_no"].astype(str).str.strip()== str(lot_filter).strip()
+        ]
+
 
     if model_filter:
         lot_df = lot_df[
@@ -280,3 +282,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
