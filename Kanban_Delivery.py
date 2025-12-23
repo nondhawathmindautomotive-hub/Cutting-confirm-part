@@ -47,7 +47,16 @@ def clean_series(s):
     )
 
 def norm(v):
-    return str(v).strip()
+    return str(v).strip() if v is not None else ""
+
+def to_gmt7(ts):
+    if pd.isna(ts):
+        return None
+    return (
+        pd.to_datetime(ts, utc=True)
+        .tz_convert("Asia/Bangkok")
+        .strftime("%Y-%m-%d %H:%M:%S")
+    )
 
 # =====================================================
 # 1) SCAN KANBAN (AUTO + SAFE JOINT)
@@ -63,9 +72,7 @@ if mode == "✅ Scan Kanban":
 
         base = (
             supabase.table("lot_master")
-            .select(
-                "kanban_no, model_name, lot_no, joint_a, joint_b"
-            )
+            .select("kanban_no, model_name, lot_no, joint_a, joint_b")
             .eq("kanban_no", kanban)
             .limit(1)
             .execute()
@@ -80,13 +87,16 @@ if mode == "✅ Scan Kanban":
         row = base[0]
         model = norm(row["model_name"])
         lot = norm(row["lot_no"])
-        joint_a = norm(row.get("joint_a") or "")
-        joint_b = norm(row.get("joint_b") or "")
+        joint_a = norm(row.get("joint_a"))
+        joint_b = norm(row.get("joint_b"))
+
         is_joint = bool(joint_a or joint_b)
 
-        # ---------------- JOINT ----------------
+        # ===============================
+        # JOINT CIRCUIT
+        # ===============================
         if is_joint:
-            joint_rows = (
+            all_rows = (
                 supabase.table("lot_master")
                 .select("kanban_no, joint_a, joint_b")
                 .eq("model_name", model)
@@ -96,13 +106,16 @@ if mode == "✅ Scan Kanban":
             )
 
             joint_list = []
-            for r in joint_rows:
-                if (
-                    joint_a and norm(r.get("joint_a")) == joint_a
-                ) or (
-                    joint_b and norm(r.get("joint_b")) == joint_b
-                ):
+            for r in all_rows:
+                if joint_a and norm(r.get("joint_a")) == joint_a:
                     joint_list.append(norm(r["kanban_no"]))
+                elif joint_b and norm(r.get("joint_b")) == joint_b:
+                    joint_list.append(norm(r["kanban_no"]))
+
+            if not joint_list:
+                st.session_state.msg = ("warning", "⚠️ ไม่พบวงจร Joint")
+                st.session_state.scan = ""
+                return
 
             sent_rows = (
                 supabase.table("kanban_delivery")
@@ -111,6 +124,7 @@ if mode == "✅ Scan Kanban":
                 .execute()
                 .data
             )
+
             sent_set = {norm(x["kanban_no"]) for x in sent_rows}
 
             to_insert = [
@@ -122,7 +136,7 @@ if mode == "✅ Scan Kanban":
                 supabase.table("kanban_delivery").insert(to_insert).execute()
                 st.session_state.msg = (
                     "success",
-                    f"✅ ส่ง Joint ครบ {len(to_insert)} Kanban"
+                    f"✅ Joint COMPLETE ({len(to_insert)} วงจร)"
                 )
             else:
                 st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
@@ -130,7 +144,9 @@ if mode == "✅ Scan Kanban":
             st.session_state.scan = ""
             return
 
-        # ---------------- NORMAL ----------------
+        # ===============================
+        # NORMAL CIRCUIT
+        # ===============================
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -153,11 +169,7 @@ if mode == "✅ Scan Kanban":
         st.session_state.msg = ("success", f"✅ ส่ง Kanban {kanban}")
         st.session_state.scan = ""
 
-    st.text_input(
-        "Scan Kanban No.",
-        key="scan",
-        on_change=confirm_scan,
-    )
+    st.text_input("Scan Kanban No.", key="scan", on_change=confirm_scan)
 
     if "msg" in st.session_state:
         t, m = st.session_state.msg
@@ -165,7 +177,7 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (CIRCUIT-LEVEL ✅)
+# 2) MODEL KANBAN STATUS (COUNT REAL CIRCUIT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -177,24 +189,19 @@ elif mode == "📊 Model Kanban Status":
 
     lot_df = safe_df(
         supabase.table("lot_master")
-        .select(
-            "model_name, lot_no, kanban_no, wire_harness_code"
-        )
-        .execute().data
+        .select("model_name, lot_no, kanban_no, wire_harness_code")
+        .execute()
+        .data
     )
 
     lot_df["lot_no"] = clean_series(lot_df["lot_no"])
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str)
 
     if lot_filter:
-        lot_df = lot_df[
-            lot_df["lot_no"] == str(lot_filter).strip()
-        ]
+        lot_df = lot_df[lot_df["lot_no"] == norm(lot_filter)]
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_name"]
-            .str.contains(model_filter, case=False, na=False)
+            lot_df["model_name"].str.contains(model_filter, case=False, na=False)
         ]
 
     if lot_df.empty:
@@ -204,7 +211,8 @@ elif mode == "📊 Model Kanban Status":
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
-        .execute().data,
+        .execute()
+        .data,
         ["kanban_no"]
     )
     del_df["sent"] = 1
@@ -212,7 +220,6 @@ elif mode == "📊 Model Kanban Status":
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     df["sent"] = df["sent"].fillna(0)
 
-    # 🔥 CIRCUIT-LEVEL SUMMARY
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
@@ -224,16 +231,10 @@ elif mode == "📊 Model Kanban Status":
 
     summary["Remaining"] = summary["Total_Circuit"] - summary["Sent"]
 
-    st.dataframe(
-        summary.rename(columns={
-            "model_name": "Model",
-            "lot_no": "Lot"
-        }),
-        use_container_width=True
-    )
+    st.dataframe(summary, use_container_width=True)
 
 # =====================================================
-# 3) TRACKING SEARCH
+# 3) TRACKING SEARCH (SHOW JOINT + GMT+7)
 # =====================================================
 elif mode == "🔍 Tracking Search":
 
@@ -249,23 +250,38 @@ elif mode == "🔍 Tracking Search":
     harness = c5.text_input("Wire Harness Code")
     lot = c6.text_input("Lot No.")
 
-    query = supabase.table("lot_master").select("*")
+    query = supabase.table("lot_master").select(
+        "kanban_no, model_name, wire_number, subpackage_number, wire_harness_code, lot_no, joint_a, joint_b"
+    )
 
-    if kanban: query = query.ilike("kanban_no", f"%{kanban}%")
-    if model: query = query.ilike("model_name", f"%{model}%")
-    if wire: query = query.ilike("wire_number", f"%{wire}%")
-    if subp: query = query.ilike("subpackage_number", f"%{subp}%")
-    if harness: query = query.ilike("wire_harness_code", f"%{harness}%")
-    if lot: query = query.ilike("lot_no", f"%{lot}%")
+    if kanban:
+        query = query.ilike("kanban_no", f"%{kanban}%")
+    if model:
+        query = query.ilike("model_name", f"%{model}%")
+    if wire:
+        query = query.ilike("wire_number", f"%{wire}%")
+    if subp:
+        query = query.ilike("subpackage_number", f"%{subp}%")
+    if harness:
+        query = query.ilike("wire_harness_code", f"%{harness}%")
+    if lot:
+        query = query.ilike("lot_no", f"%{lot}%")
 
     lot_df = safe_df(query.execute().data)
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล")
+        st.stop()
 
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
-        .execute().data,
+        .execute()
+        .data,
         ["kanban_no", "created_at"]
     )
+
+    del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
+    del_df.drop(columns=["created_at"], inplace=True)
 
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     st.dataframe(df, use_container_width=True)
