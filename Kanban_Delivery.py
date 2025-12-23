@@ -141,7 +141,8 @@ if mode == "✅ Scan Kanban":
         del st.session_state.msg
 
 # =====================================================
-# 2) MODEL KANBAN STATUS (❌ KEYERROR FIXED)
+# =====================================================
+# 2) MODEL KANBAN STATUS (FINAL / STABLE)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -149,8 +150,11 @@ elif mode == "📊 Model Kanban Status":
 
     c1, c2 = st.columns(2)
     model_filter = c1.text_input("Model")
-    lot_filter = c2.text_input("Lot")
+    lot_filter = c2.text_input("Lot (เช่น 251205)")
 
+    # ===============================
+    # LOAD LOT MASTER
+    # ===============================
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("model_name, kanban_no, lot_no")
@@ -158,6 +162,20 @@ elif mode == "📊 Model Kanban Status":
         ["model_name", "kanban_no", "lot_no"]
     )
 
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูลใน Lot Master")
+        st.stop()
+
+    # ===============================
+    # 🔥 CLEAN DATA (หัวใจของปัญหา)
+    # ===============================
+    lot_df["lot_no"] = lot_df["lot_no"].astype(str).str.strip()
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+
+    # ===============================
+    # LOAD DELIVERY
+    # ===============================
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
@@ -165,31 +183,49 @@ elif mode == "📊 Model Kanban Status":
         ["kanban_no"]
     )
 
-    del_df["sent"] = 1
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+        del_df["sent"] = 1
+    else:
+        del_df = pd.DataFrame(columns=["kanban_no", "sent"])
 
+    # ===============================
+    # MERGE
+    # ===============================
     df = lot_df.merge(del_df, on="kanban_no", how="left")
     df["sent"] = df["sent"].fillna(0)
 
+    # ===============================
+    # FILTER (โรงงานจริง)
+    # ===============================
     if model_filter:
         df = df[df["model_name"].str.contains(model_filter, case=False, na=False)]
 
     if lot_filter:
-        df = df[df["lot_no"].astype(str).str.contains(lot_filter, na=False)]
-        
+        df = df[df["lot_no"] == lot_filter.strip()]
+
     if df.empty:
-        st.warning("ไม่พบข้อมูล")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
         st.stop()
 
+    # ===============================
+    # SUMMARY
+    # ===============================
     summary = (
         df.groupby(["model_name", "lot_no"])
         .agg(
-            Total_Kanban=("kanban_no", "count"),
+            Total_Kanban=("kanban_no", "nunique"),
             Sent=("sent", "sum")
         )
         .reset_index()
     )
 
     summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
+
+    summary.rename(columns={
+        "model_name": "Model",
+        "lot_no": "Lot"
+    }, inplace=True)
 
     st.dataframe(summary, use_container_width=True)
 
@@ -307,4 +343,5 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
 
