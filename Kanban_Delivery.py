@@ -47,11 +47,11 @@ def clean_series(s):
     )
 
 # =====================================================
-# 1) SCAN KANBAN (AUTO JOINT - SAFE)
+# 1) SCAN KANBAN (AUTO JOINT – SAFE)
 # =====================================================
 if mode == "✅ Scan Kanban":
 
-    st.header("✅ Scan Kanban")
+    st.header("✅ Scan Kanban (Auto Joint – Safe Mode)")
 
     def confirm_scan():
         kanban = st.session_state.scan.strip()
@@ -59,7 +59,7 @@ if mode == "✅ Scan Kanban":
             return
 
         # -----------------------------
-        # LOOKUP KANBAN
+        # LOOKUP MASTER
         # -----------------------------
         base = supabase.table("lot_master").select(
             "kanban_no, model_name, lot_no, joint_a, joint_b"
@@ -73,10 +73,10 @@ if mode == "✅ Scan Kanban":
         row = base[0]
         model = str(row["model_name"])
         lot = str(row["lot_no"]).replace(".0", "").strip()
-        joint = row.get("joint_a") or row.get("joint_b")
+        joint = (row.get("joint_a") or "").strip() or (row.get("joint_b") or "").strip()
 
         # =================================================
-        # AUTO JOINT (เฉพาะกรณีมี joint จริง)
+        # JOINT MODE (เฉพาะกรณีมี joint จริง)
         # =================================================
         if joint:
 
@@ -87,13 +87,13 @@ if mode == "✅ Scan Kanban":
              .or_(f"joint_a.eq.{joint},joint_b.eq.{joint}") \
              .execute().data
 
-            joint_list = [
+            joint_list = sorted({
                 str(x["kanban_no"]).strip()
                 for x in joint_rows if x.get("kanban_no")
-            ]
+            })
 
             if not joint_list:
-                st.session_state.msg = ("warning", f"⚠️ Joint {joint} ไม่พบ Kanban อื่น")
+                st.session_state.msg = ("warning", f"⚠️ Joint {joint} ไม่มี Kanban อื่น")
                 st.session_state.scan = ""
                 return
 
@@ -105,11 +105,7 @@ if mode == "✅ Scan Kanban":
             sent_set = {x["kanban_no"] for x in sent_rows}
 
             to_insert = [
-                {
-                    "kanban_no": k,
-                    "model_name": model,
-                    "lot_no": lot
-                }
+                {"kanban_no": k, "model_name": model, "lot_no": lot}
                 for k in joint_list if k not in sent_set
             ]
 
@@ -134,6 +130,7 @@ if mode == "✅ Scan Kanban":
         exist = supabase.table("kanban_delivery") \
             .select("kanban_no") \
             .eq("kanban_no", kanban) \
+            .limit(1) \
             .execute().data
 
         if exist:
@@ -222,16 +219,8 @@ elif mode == "🔍 Tracking Search":
     lot = c6.text_input("Lot No.")
 
     query = supabase.table("lot_master").select(
-        """
-        kanban_no,
-        model_name,
-        wire_number,
-        subpackage_number,
-        wire_harness_code,
-        lot_no,
-        joint_a,
-        joint_b
-        """
+        "kanban_no, model_name, wire_number, subpackage_number,"
+        "wire_harness_code, lot_no, joint_a, joint_b"
     )
 
     if kanban:
@@ -291,4 +280,3 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
-
