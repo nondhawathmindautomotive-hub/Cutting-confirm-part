@@ -172,9 +172,10 @@ elif mode == "📊 Model Kanban Status":
 
     if model_filter:
         df = df[df["model_name"].str.contains(model_filter, case=False, na=False)]
-    if lot_filter:
-        df = df[df["lot_no"] == lot_filter]
 
+    if lot_filter:
+        df = df[df["lot_no"].astype(str).str.contains(lot_filter, na=False)]
+        
     if df.empty:
         st.warning("ไม่พบข้อมูล")
         st.stop()
@@ -199,18 +200,39 @@ elif mode == "🔍 Tracking Search":
 
     st.header("🔍 Tracking Search")
 
+    c1, c2, c3 = st.columns(3)
+    c4, c5, c6 = st.columns(3)
+
+    kanban = c1.text_input("Kanban No.")
+    model = c2.text_input("Model")
+    wire = c3.text_input("Wire Number")
+
+    subpackage = c4.text_input("Subpackage Number")
+    harness = c5.text_input("Wire Harness Code")
+    lot = c6.text_input("Lot No.")
+
     lot_df = safe_df(
         supabase.table("lot_master")
         .select("""
-            kanban_no, model_name, wire_number,
-            subpackage_number, wire_harness_code,
-            lot_no, joint_a, joint_b
+            kanban_no,
+            model_name,
+            wire_number,
+            subpackage_number,
+            wire_harness_code,
+            lot_no,
+            joint_a,
+            joint_b
         """)
         .execute().data,
         [
-            "kanban_no", "model_name", "wire_number",
-            "subpackage_number", "wire_harness_code",
-            "lot_no", "joint_a", "joint_b"
+            "kanban_no",
+            "model_name",
+            "wire_number",
+            "subpackage_number",
+            "wire_harness_code",
+            "lot_no",
+            "joint_a",
+            "joint_b"
         ]
     )
 
@@ -222,6 +244,36 @@ elif mode == "🔍 Tracking Search":
     )
 
     df = lot_df.merge(del_df, on="kanban_no", how="left")
+
+    # ================= FILTER =================
+    if kanban:
+        df = df[df["kanban_no"].str.contains(kanban, na=False)]
+    if model:
+        df = df[df["model_name"].str.contains(model, case=False, na=False)]
+    if wire:
+        df = df[df["wire_number"].str.contains(wire, na=False)]
+    if subpackage:
+        df = df[df["subpackage_number"].str.contains(subpackage, na=False)]
+    if harness:
+        df = df[df["wire_harness_code"].str.contains(harness, na=False)]
+    if lot:
+        df = df[df["lot_no"].astype(str).str.contains(lot, na=False)]
+
+    if df.empty:
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขค้นหา")
+        st.stop()
+
+    df.rename(columns={
+        "kanban_no": "Kanban No",
+        "model_name": "Model",
+        "wire_number": "Wire",
+        "subpackage_number": "Subpackage",
+        "wire_harness_code": "Harness Code",
+        "lot_no": "Lot",
+        "created_at": "Delivered At",
+        "joint_a": "Joint A",
+        "joint_b": "Joint B"
+    }, inplace=True)
 
     st.dataframe(df, use_container_width=True)
 
@@ -255,3 +307,4 @@ elif mode == "🔐📤 Upload Lot Master":
             ).execute()
 
             st.success(f"✅ Upload {len(df)} records")
+
