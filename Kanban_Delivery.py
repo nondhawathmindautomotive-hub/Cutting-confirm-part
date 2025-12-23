@@ -178,9 +178,8 @@ if mode == "✅ Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
-
 # =====================================================
-# 2) MODEL KANBAN STATUS (MODEL NORMALIZED + CORRECT COUNT)
+# 2) MODEL KANBAN STATUS (MODEL GROUPED + CORRECT COUNT)
 # =====================================================
 elif mode == "📊 Model Kanban Status":
 
@@ -224,6 +223,15 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
+    # 🔑 MODEL GROUP (รวม L / M / L-M)
+    # -----------------------------
+    lot_df["model_group"] = (
+        lot_df["model_key"]
+        .str.replace(r"\(.*\)$", "", regex=True)
+        .str.strip()
+    )
+
+    # -----------------------------
     # FILTER
     # -----------------------------
     if lot_filter:
@@ -233,7 +241,7 @@ elif mode == "📊 Model Kanban Status":
 
     if model_filter:
         lot_df = lot_df[
-            lot_df["model_key"]
+            lot_df["model_group"]
             .str.contains(model_filter.strip(), case=False, na=False)
         ]
 
@@ -242,10 +250,10 @@ elif mode == "📊 Model Kanban Status":
         st.stop()
 
     # -----------------------------
-    # UNIQUE KANBAN (CRITICAL FIX)
+    # UNIQUE KANBAN (กันนับซ้ำ)
     # -----------------------------
     lot_df = lot_df.drop_duplicates(
-        subset=["model_key", "lot_no", "kanban_no"]
+        subset=["model_group", "lot_no", "kanban_no"]
     )
 
     # -----------------------------
@@ -273,7 +281,7 @@ elif mode == "📊 Model Kanban Status":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # SUMMARY (✔ TOTAL = COUNT KANBAN_NO)
+    # SUMMARY ✅ (TOTAL = จำนวน Kanban จริง)
     # -----------------------------
     summary = (
         df.groupby(["model_group", "lot_no"])
@@ -284,24 +292,26 @@ elif mode == "📊 Model Kanban Status":
         .reset_index()
     )
 
-summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
+    summary["Remaining"] = summary["Total_Kanban"] - summary["Sent"]
 
     # -----------------------------
     # DISPLAY
     # -----------------------------
     st.dataframe(
-        summary.sort_values(["model_key", "lot_no"]),
+        summary.sort_values(["model_group", "lot_no"]),
         use_container_width=True
     )
 
     # -----------------------------
-    # DETAIL: SHOW KANBAN COUNT (ตามที่ขอ)
+    # DETAIL (ตรวจสอบ 31 ตัว)
     # -----------------------------
     with st.expander("📋 รายการ Kanban ที่ถูกนำมานับ"):
         st.dataframe(
-            df.sort_values(["model_key", "kanban_no"]),
+            df[["model_key", "model_group", "lot_no", "kanban_no", "sent"]]
+            .sort_values(["model_group", "kanban_no"]),
             use_container_width=True
         )
+
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -425,6 +435,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
