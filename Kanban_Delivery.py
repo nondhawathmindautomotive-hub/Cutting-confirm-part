@@ -138,7 +138,7 @@ if mode == "✅ Scan Kanban":
                     f"✅ Joint COMPLETE {len(to_insert)} วงจร"
                 )
             else:
-                st.session_state.msg = ("warning", ⚠️ Joint นี้ถูกส่งครบแล้ว")
+                st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
 
             st.session_state.scan = ""
             return
@@ -424,6 +424,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
