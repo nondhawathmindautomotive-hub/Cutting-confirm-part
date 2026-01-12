@@ -416,14 +416,17 @@ elif mode == "🔐📤 Upload Lot Master":
         if st.button("🚀 Upload to Supabase"):
             try:
                 supabase.table("lot_master").upsert(
-                    df.to_dict("records")
+                    df.to_dict("records"),
+                    on_conflict="kanban_no"
                 ).execute()
+
 
                 st.success(f"✅ Upload สำเร็จ {len(df)} records")
 
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
