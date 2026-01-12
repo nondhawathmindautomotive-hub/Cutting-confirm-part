@@ -420,12 +420,12 @@ elif mode == "🔐📤 Upload Lot Master":
                     on_conflict="kanban_no"
                 ).execute()
 
-
                 st.success(f"✅ Upload สำเร็จ {len(df)} records")
 
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
