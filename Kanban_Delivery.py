@@ -385,24 +385,40 @@ elif mode == "🔐📤 Upload Lot Master":
             st.error(f"❌ ขาด column: {missing}")
             st.stop()
 
-        # -----------------------------
-        # CLEAN DATA (🔥 FIX ERROR HERE)
+                # -----------------------------
+        # CLEAN DATA
         # -----------------------------
         df = df[required].copy()
 
-        # แปลง NaN → ""
         df = df.fillna("")
 
-        # แปลงทุก column เป็น string
         for c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
-        # แก้ lot_no ที่เป็น 251203.0
         df["lot_no"] = (
             df["lot_no"]
             .str.replace(r"\.0$", "", regex=True)
             .str.strip()
         )
+
+        # =================================================
+        # 🔥 DEDUPLICATE kanban_no (CRITICAL FIX)
+        # =================================================
+        before = len(df)
+
+        df = (
+            df
+            .sort_values(by=["kanban_no"])
+            .drop_duplicates(
+                subset=["kanban_no"],
+                keep="first"      # ← ถ้าล็อตใหม่อยู่ล่าง เปลี่ยนเป็น "last"
+            )
+            .reset_index(drop=True)
+        )
+
+        after = len(df)
+
+        st.info(f"🧹 ลบ kanban_no ซ้ำ {before - after} รายการ")
 
         # -----------------------------
         # PREVIEW
@@ -425,6 +441,13 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
+                st.success(f"✅ Upload สำเร็จ {len(df)} records")
+
+            except Exception as e:
+                st.error("❌ Upload ไม่สำเร็จ")
+                st.exception(e)
+
 
 
 
