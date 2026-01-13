@@ -268,12 +268,11 @@ elif mode == "📊 Model Kanban Status":
     # MERGE
     # -----------------------------
     df = lot_df.merge(
-        del_df,
+        del_df[["kanban_no", "sent"]],
         on="kanban_no",
         how="left"
     )
     df["sent"] = df["sent"].fillna(0).astype(int)
-
     # -----------------------------
     # SUMMARY (✔ EXACT CSV COUNT)
     # -----------------------------
@@ -451,6 +450,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
