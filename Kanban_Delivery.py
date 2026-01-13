@@ -245,6 +245,16 @@ elif mode == "📊 Model Kanban Status":
     lot_df = lot_df.drop_duplicates(
         subset=["model_name", "lot_no", "kanban_no"]
     )
+    # =====================================================
+    # 🔒 FORCE SCHEMA (PREVENT KeyError 100%)
+    # =====================================================
+    required_cols = ["kanban_no", "model_name", "lot_no"]
+
+    for c in required_cols:
+        if c not in lot_df.columns:
+            lot_df[c] = ""
+
+    lot_df = lot_df[required_cols]
 
     # -----------------------------
     # LOAD DELIVERY (SAFE)
@@ -450,6 +460,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
