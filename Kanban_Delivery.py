@@ -247,18 +247,22 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
-    # LOAD DELIVERY
+    # LOAD DELIVERY (SAFE)
     # -----------------------------
-    del_df = safe_df(
+    del_raw = (
         supabase.table("kanban_delivery")
         .select("kanban_no")
         .execute()
-        .data,
-        ["kanban_no"]
+        .data
     )
 
-    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-    del_df["sent"] = 1
+    if del_raw:
+        del_df = pd.DataFrame(del_raw)
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+        del_df["sent"] = 1
+    else:
+        # 🔒 กัน KeyError 100%
+        del_df = pd.DataFrame(columns=["kanban_no", "sent"])
 
     # -----------------------------
     # MERGE
@@ -447,6 +451,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
