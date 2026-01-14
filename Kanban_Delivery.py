@@ -389,23 +389,28 @@ elif mode == "🔍 Tracking Search":
 # LOAD DELIVERY TIME
 # =============================
     del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no, created_at")
-        .execute()
-        .data,
-        ["kanban_no", "created_at"]
+    supabase.table("kanban_delivery")
+    .select("kanban_no, created_at, last_scanned_at")
+    .execute()
+    .data,
+    ["kanban_no", "created_at", "last_scanned_at"]
+)
+
+if not del_df.empty:
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+
+    # ใช้ last_scanned_at ก่อน ถ้าไม่มี ค่อยใช้ created_at
+    del_df["Delivered at (GMT+7)"] = (
+        del_df["last_scanned_at"]
+        .fillna(del_df["created_at"])
+        .apply(to_gmt7)
     )
 
-    if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-
-        del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
-
-        del_df = del_df.drop(columns=["created_at"])
-    else:
-        del_df = pd.DataFrame(
-            columns=["kanban_no", "Delivered at (GMT+7)"]
-        )
+    del_df = del_df.drop(columns=["created_at", "last_scanned_at"])
+else:
+    del_df = pd.DataFrame(
+        columns=["kanban_no", "Delivered at (GMT+7)"]
+    )
 
 # =============================
 # MERGE
@@ -515,6 +520,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
