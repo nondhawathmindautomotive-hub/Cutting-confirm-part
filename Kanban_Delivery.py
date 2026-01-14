@@ -38,8 +38,8 @@ mode = st.sidebar.radio(
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
-        "🔐📤 Upload Lot Master"
-        "📦 Kanban Delivery Log"
+        "🔐📤 Upload Lot Master",
+        "📦 Kanban Delivery Log",
     ]
 )
 
@@ -483,7 +483,7 @@ elif mode == "📦 Kanban Delivery Log":
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # SEARCH BAR
+    # SEARCH
     # -----------------------------
     c1, c2, c3 = st.columns(3)
     s_kanban = c1.text_input("Kanban No.")
@@ -494,10 +494,10 @@ elif mode == "📦 Kanban Delivery Log":
     # MANUAL REFRESH
     # -----------------------------
     if st.button("🔄 Refresh Data"):
-        st.session_state["_refresh_log"] = True
+        st.experimental_rerun()
 
     # -----------------------------
-    # LOAD DATA FROM SUPABASE
+    # LOAD DATA
     # -----------------------------
     data = (
         supabase.table("kanban_delivery")
@@ -514,31 +514,37 @@ elif mode == "📦 Kanban Delivery Log":
         st.stop()
 
     # -----------------------------
-    # TIMEZONE CONVERT (GMT+7)
+    # TIMEZONE (GMT+7)
     # -----------------------------
     if "created_at" in df.columns:
         df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
 
     if "last_scanned_at" in df.columns:
-        df["last_scanned_at]()
+        df["last_scanned_at (GMT+7)"] = df["last_scanned_at"].apply(to_gmt7)
 
-        # -----------------------------
-        # PREVIEW
-        # -----------------------------
-        st.subheader("📄 Preview (10 rows)")
-        st.dataframe(df.head(10), use_container_width=True)
+    # -----------------------------
+    # FILTER
+    # -----------------------------
+    if s_kanban:
+        df = df[df["kanban_no"].astype(str).str.contains(s_kanban, case=False, na=False)]
 
-        # -----------------------------
-        # UPLOAD
-        # -----------------------------
-        if st.button("🚀 Upload to Supabase"):
-            try:
-                supabase.table("lot_master").upsert(
-                    df.to_dict("records"),
-                    on_conflict="kanban_no"
-                ).execute()
+    if s_model and "model_name" in df.columns:
+        df = df[df["model_name"].astype(str).str.contains(s_model, case=False, na=False)]
 
-                st.success(f"✅ Upload สำเร็จ {len(df)} records")
+    if s_lot and "lot_no" in df.columns:
+        df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
+
+    # -----------------------------
+    # SORT LATEST FIRST
+    # -----------------------------
+    if "created_at" in df.columns:
+        df = df.sort_values("created_at", ascending=False)
+
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
+    st.dataframe(df, use_container_width=True)
+    st.caption(f"📊 Total records: {len(df)}")
 
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
@@ -549,6 +555,7 @@ elif mode == "📦 Kanban Delivery Log":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
