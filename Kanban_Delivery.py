@@ -385,6 +385,9 @@ elif mode == "🔍 Tracking Search":
 
     lot_df = safe_df(query.execute().data)
 
+# =============================
+# LOAD DELIVERY TIME
+# =============================
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at")
@@ -393,10 +396,28 @@ elif mode == "🔍 Tracking Search":
         ["kanban_no", "created_at"]
     )
 
-    del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
-    del_df = del_df.drop(columns=["created_at"])
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
 
-    df = lot_df.merge(del_df, on="kanban_no", how="left")
+        del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
+
+        del_df = del_df.drop(columns=["created_at"])
+    else:
+        del_df = pd.DataFrame(
+            columns=["kanban_no", "Delivered at (GMT+7)"]
+        )
+
+# =============================
+# MERGE
+# =============================
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
@@ -494,6 +515,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
