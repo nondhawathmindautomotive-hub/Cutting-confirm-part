@@ -234,9 +234,12 @@ elif mode == "📊 Model Kanban Status":
     # FILTER
     # -----------------------------
     if lot_filter:
-        lot_df = lot_df[
-            lot_df["lot_no"] == lot_filter.strip()
-        ]
+    lot_df = lot_df[
+        lot_df["lot_no"]
+        .astype(str)
+        .str.strip()
+        .str.contains(lot_filter.strip(), case=False, na=False)
+    ]
 
     if model_filter:
         lot_df = lot_df[
