@@ -114,7 +114,7 @@ if mode == "✅ Scan Kanban":
             for r in rows:
                 if joint_a and norm(r.get("joint_a")) == joint_a:
                     joint_list.append(norm(r["kanban_no"]))
-                 elif joint_b and norm(r.get("joint_b")) == joint_b:
+                elif joint_b and norm(r.get("joint_b")) == joint_b:
                     joint_list.append(norm(r["kanban_no"]))
 
             joint_list = list(set(joint_list))
@@ -485,6 +485,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
