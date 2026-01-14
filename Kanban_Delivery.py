@@ -39,6 +39,7 @@ mode = st.sidebar.radio(
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
         "🔐📤 Upload Lot Master"
+        "📦 Kanban Delivery Log"
     ]
 )
 
@@ -474,6 +475,79 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.replace(r"\.0$", "", regex=True)
             .str.strip()
         )
+# =====================================================
+# 5) KANBAN DELIVERY LOG (MANUAL REFRESH)
+# =====================================================
+elif mode == "📦 Kanban Delivery Log":
+
+    st.header("📦 Kanban Delivery Log")
+
+    # -----------------------------
+    # SEARCH
+    # -----------------------------
+    c1, c2, c3 = st.columns(3)
+    s_kanban = c1.text_input("Kanban No.")
+    s_model = c2.text_input("Model")
+    s_lot = c3.text_input("Lot No.")
+
+    # -----------------------------
+    # REFRESH BUTTON
+    # -----------------------------
+    if st.button("🔄 Refresh Data"):
+        st.session_state.refresh_log = True
+
+    # -----------------------------
+    # LOAD DATA
+    # -----------------------------
+    data = (
+        supabase.table("kanban_delivery")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+    df = safe_df(data)
+
+    if df.empty:
+        st.warning("ไม่พบข้อมูล kanban_delivery")
+        st.stop()
+
+    # -----------------------------
+    # TIMEZONE CONVERT
+    # -----------------------------
+    if "created_at" in df.columns:
+        df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
+
+    if "last_scanned_at" in df.columns:
+        df["last_scanned_at (GMT+7)"] = df["last_scanned_at"].apply(to_gmt7)
+
+    # -----------------------------
+    # FILTER
+    # -----------------------------
+    if s_kanban:
+        df = df[df["kanban_no"].astype(str).str.contains(s_kanban, case=False, na=False)]
+
+    if s_model and "model_name" in df.columns:
+        df = df[df["model_name"].astype(str).str.contains(s_model, case=False, na=False)]
+
+    if s_lot and "lot_no" in df.columns:
+        df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
+
+    # -----------------------------
+    # SORT (LATEST FIRST)
+    # -----------------------------
+    df = df.sort_values("created_at", ascending=False)
+
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+    st.caption(f"📊 Total records: {len(df)}")
 
         # =================================================
         # 🔥 DEDUPLICATE kanban_no (CRITICAL FIX)
@@ -521,6 +595,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
