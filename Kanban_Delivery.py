@@ -73,8 +73,6 @@ if mode == "✅ Scan Kanban":
         if not kanban:
             return
 
-        now_ts = "now()"
-
         base = (
             supabase.table("lot_master")
             .select("kanban_no, model_name, lot_no, joint_a, joint_b")
@@ -97,9 +95,9 @@ if mode == "✅ Scan Kanban":
 
         is_joint = bool(joint_a or joint_b)
 
-    # =================================================
-    # JOINT CIRCUIT
-    # =================================================
+        # =========================
+        # JOINT CIRCUIT
+        # =========================
         if is_joint:
             rows = (
                 supabase.table("lot_master")
@@ -119,49 +117,35 @@ if mode == "✅ Scan Kanban":
 
             joint_list = list(set(joint_list))
 
-            exist = (
+            sent = (
                 supabase.table("kanban_delivery")
                 .select("kanban_no")
                 .in_("kanban_no", joint_list)
                 .execute()
                 .data
             )
-            exist_set = {norm(x["kanban_no"]) for x in exist}
+            sent_set = {norm(x["kanban_no"]) for x in sent}
 
-        # INSERT ใหม่
             to_insert = [
-                {
-                    "kanban_no": k,
-                    "model_name": model,
-                    "lot_no": lot,
-                    "last_scanned_at": now_ts
-                }
-                for k in joint_list if k not in exist_set
+                {"kanban_no": k, "model_name": model, "lot_no": lot}
+                for k in joint_list if k not in sent_set
             ]
 
             if to_insert:
                 supabase.table("kanban_delivery").insert(to_insert).execute()
-
-            # UPDATE เวลา (โหมดล่าสุด)
-            if scan_mode == "🔄 Update Last Scan (Recommended)":
-                supabase.table("kanban_delivery").update(
-                    {"last_scanned_at": now_ts}
-                ).in_("kanban_no", joint_list).execute()
-
-            st.session_state.msg = (
-                "success",
-                  f"""✅ Joint Scan สำเร็จ
-    - Model : {model}
-    - Lot   : {lot}
-    - Qty   : {len(joint_list)}"""
-            )
+                st.session_state.msg = (
+                    "success",
+                    f"✅ Joint COMPLETE {len(to_insert)} วงจร"
+                )
+            else:
+                st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
 
             st.session_state.scan = ""
             return
 
-    # =================================================
-    # NORMAL CIRCUIT
-    # =================================================
+        # =========================
+        # NORMAL CIRCUIT
+        # =========================
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -171,39 +155,38 @@ if mode == "✅ Scan Kanban":
         )
 
         if exist:
-            if scan_mode == "🔄 Update Last Scan (Recommended)":
-                supabase.table("kanban_delivery").update(
-                    {"last_scanned_at": now_ts}
-                ).eq("kanban_no", kanban).execute()
-
-            st.session_state.msg = (
-                "success",
-                f"""🔄 Scan ซ้ำ (อัปเดตเวลา)
-    - Kanban : {kanban}
-    - Model  : {model}
-    - Lot    : {lot}"""
-            )
+            st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งแล้ว")
             st.session_state.scan = ""
             return
 
-        # INSERT ใหม่
         supabase.table("kanban_delivery").insert({
             "kanban_no": kanban,
             "model_name": model,
-            "lot_no": lot,
-            "last_scanned_at": now_ts
+            "lot_no": lot
         }).execute()
 
         st.session_state.msg = (
             "success",
-            f"""✅ ส่ง Kanban สำเร็จ
-    - Kanban : {kanban}
-    - Model  : {model}
-    - Lot    : {lot}"""
+            f"""
+        ✅ **ส่ง Kanban สำเร็จ**
+        - Kanban : `{kanban}`
+        - Model  : `{model}`
+        - Lot    : `{lot}`
+        """
         )
 
         st.session_state.scan = ""
 
+    st.text_input(
+        "Scan Kanban No.",
+        key="scan",
+        on_change=confirm_scan
+    )
+
+    if "msg" in st.session_state:
+        t, m = st.session_state.msg
+        getattr(st, t)(m)
+        del st.session_state.msg
 # =====================================================
 # 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
 # =====================================================
@@ -485,7 +468,6 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
-
 
 
 
