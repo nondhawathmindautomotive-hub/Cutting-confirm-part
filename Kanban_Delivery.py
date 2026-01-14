@@ -476,14 +476,14 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) KANBAN DELIVERY LOG (MANUAL REFRESH)
+# 5) KANBAN DELIVERY LOG (MANUAL REFRESH / REAL DATA)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # SEARCH
+    # SEARCH BAR
     # -----------------------------
     c1, c2, c3 = st.columns(3)
     s_kanban = c1.text_input("Kanban No.")
@@ -491,13 +491,13 @@ elif mode == "📦 Kanban Delivery Log":
     s_lot = c3.text_input("Lot No.")
 
     # -----------------------------
-    # REFRESH BUTTON
+    # MANUAL REFRESH
     # -----------------------------
     if st.button("🔄 Refresh Data"):
-        st.session_state.refresh_log = True
+        st.session_state["_refresh_log"] = True
 
     # -----------------------------
-    # LOAD DATA
+    # LOAD DATA FROM SUPABASE
     # -----------------------------
     data = (
         supabase.table("kanban_delivery")
@@ -514,40 +514,13 @@ elif mode == "📦 Kanban Delivery Log":
         st.stop()
 
     # -----------------------------
-    # TIMEZONE CONVERT
+    # TIMEZONE CONVERT (GMT+7)
     # -----------------------------
     if "created_at" in df.columns:
         df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
 
     if "last_scanned_at" in df.columns:
-        df["last_scanned_at (GMT+7)"] = df["last_scanned_at"].apply(to_gmt7)
-
-    # -----------------------------
-    # FILTER
-    # -----------------------------
-    if s_kanban:
-        df = df[df["kanban_no"].astype(str).str.contains(s_kanban, case=False, na=False)]
-
-    if s_model and "model_name" in df.columns:
-        df = df[df["model_name"].astype(str).str.contains(s_model, case=False, na=False)]
-
-    if s_lot and "lot_no" in df.columns:
-        df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
-
-    # -----------------------------
-    # SORT (LATEST FIRST)
-    # -----------------------------
-    df = df.sort_values("created_at", ascending=False)
-
-    # -----------------------------
-    # DISPLAY
-    # -----------------------------
-    st.dataframe(
-        df,
-        use_container_width=True
-    )
-
-    st.caption(f"📊 Total records: {len(df)}")
+        df["last_scanned_at]()
 
         # -----------------------------
         # PREVIEW
@@ -576,6 +549,7 @@ elif mode == "📦 Kanban Delivery Log":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
