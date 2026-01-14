@@ -549,25 +549,6 @@ elif mode == "📦 Kanban Delivery Log":
 
     st.caption(f"📊 Total records: {len(df)}")
 
-        # =================================================
-        # 🔥 DEDUPLICATE kanban_no (CRITICAL FIX)
-        # =================================================
-            before = len(df)
-
-        df = (
-            df
-            .sort_values(by=["kanban_no"])
-            .drop_duplicates(
-                subset=["kanban_no"],
-                keep="first"      # ← ถ้าล็อตใหม่อยู่ล่าง เปลี่ยนเป็น "last"
-            )
-            .reset_index(drop=True)
-        )
-
-        after = len(df)
-
-        st.info(f"🧹 ลบ kanban_no ซ้ำ {before - after} รายการ")
-
         # -----------------------------
         # PREVIEW
         # -----------------------------
@@ -595,6 +576,7 @@ elif mode == "📦 Kanban Delivery Log":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
