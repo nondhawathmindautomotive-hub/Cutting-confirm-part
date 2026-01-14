@@ -231,26 +231,21 @@ elif mode == "📊 Model Kanban Status":
     )
 
     # -----------------------------
-    # FILTER
-    # -----------------------------
+# FILTER
+# -----------------------------
     if lot_filter:
-    lot_df = lot_df[
-        lot_df["lot_no"]
-        .astype(str)
-        .str.strip()
-        .str.contains(lot_filter.strip(), case=False, na=False)
-    ]
-
+        lot_df = lot_df[
+            lot_df["lot_no"]
+            .astype(str)
+            .str.strip()
+            .str.contains(lot_filter.strip(), case=False, na=False)
+        ]
 
     if model_filter:
         lot_df = lot_df[
             lot_df["model_name"]
             .str.contains(model_filter.strip(), case=False, na=False)
         ]
-
-    if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
 
     # -----------------------------
     # UNIQUE KANBAN (CRITICAL)
@@ -473,6 +468,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
