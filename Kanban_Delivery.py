@@ -241,6 +241,7 @@ elif mode == "📊 Model Kanban Status":
         .str.contains(lot_filter.strip(), case=False, na=False)
     ]
 
+
     if model_filter:
         lot_df = lot_df[
             lot_df["model_name"]
@@ -472,6 +473,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
