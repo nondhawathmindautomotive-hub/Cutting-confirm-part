@@ -546,15 +546,6 @@ elif mode == "📦 Kanban Delivery Log":
     st.dataframe(df, use_container_width=True)
     st.caption(f"📊 Total records: {len(df)}")
 
-            except Exception as e:
-                st.error("❌ Upload ไม่สำเร็จ")
-                st.exception(e)
-
-                st.success(f"✅ Upload สำเร็จ {len(df)} records")
-
-            except Exception as e:
-                st.error("❌ Upload ไม่สำเร็จ")
-                st.exception(e)
 
 
 
