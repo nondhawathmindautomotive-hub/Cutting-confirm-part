@@ -552,7 +552,7 @@ elif mode == "📦 Kanban Delivery Log":
         # =================================================
         # 🔥 DEDUPLICATE kanban_no (CRITICAL FIX)
         # =================================================
-        before = len(df)
+            before = len(df)
 
         df = (
             df
@@ -595,6 +595,7 @@ elif mode == "📦 Kanban Delivery Log":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
