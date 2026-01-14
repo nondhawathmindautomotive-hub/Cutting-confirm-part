@@ -165,7 +165,16 @@ if mode == "✅ Scan Kanban":
             "lot_no": lot
         }).execute()
 
-        st.session_state.msg = ("success",f"✅ ส่ง Kanban {kanban}\n📦 Model: {model}")
+        st.session_state.msg = (
+            "success",
+            f"""
+        ✅ **ส่ง Kanban สำเร็จ**
+        - Kanban : `{kanban}`
+        - Model  : `{model}`
+        - Lot    : `{lot}`
+        """
+        )
+
         st.session_state.scan = ""
 
     st.text_input(
@@ -460,6 +469,7 @@ elif mode == "🔐📤 Upload Lot Master":
             except Exception as e:
                 st.error("❌ Upload ไม่สำเร็จ")
                 st.exception(e)
+
 
 
 
