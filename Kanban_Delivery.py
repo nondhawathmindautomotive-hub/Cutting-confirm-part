@@ -286,9 +286,9 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
 # =====================================================
-elif mode == "📦 Kanban Delivery Log":
+elif mode == "Kanban Delivery Log":
 
-    st.header("📦 Kanban Delivery Log")
+    st.header("Kanban Delivery Log")
 
     # -----------------------------
     # SEARCH INPUT (OPTIONAL ALL)
@@ -460,6 +460,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
