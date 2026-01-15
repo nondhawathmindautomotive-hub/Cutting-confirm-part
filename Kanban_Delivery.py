@@ -445,113 +445,98 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG (LOT / MODEL / STATUS)
+# 5) 📦 KANBAN DELIVERY LOG
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # FILTER
+    # SEARCH
     # -----------------------------
-    c1, c2, c3, c4 = st.columns(4)
-    f_model = c1.text_input("Model")
-    f_lot = c2.text_input("Lot")
-    view_mode = c3.selectbox(
-        "View",
-        ["ทั้งหมด", "ส่งแล้ว", "ยังไม่ส่ง"]
-    )
-
-    if c4.button("🔄 Refresh"):
-        pass  # Streamlit rerun auto
+    c1, c2, c3 = st.columns(3)
+    s_kanban = c1.text_input("Kanban No.")
+    s_model = c2.text_input("Model")
+    s_lot = c3.text_input("Lot No.")
 
     # -----------------------------
-    # LOAD LOT MASTER (BASE)
+    # MANUAL REFRESH
     # -----------------------------
-    lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("kanban_no, model_name, lot_no")
+    if st.button("🔄 Refresh Data"):
+        st.rerun()
+
+    # -----------------------------
+    # LOAD DATA
+    # -----------------------------
+    data = (
+        supabase.table("kanban_delivery")
+        .select("*")
         .execute()
         .data
     )
 
-    if lot_df.empty:
-        st.warning("ไม่พบข้อมูล lot_master")
+    df = safe_df(data)
+
+    if df.empty:
+        st.warning("ไม่พบข้อมูล kanban_delivery")
         st.stop()
 
-    for c in ["kanban_no", "model_name", "lot_no"]:
-        lot_df[c] = lot_df[c].astype(str).str.strip()
+    # -----------------------------
+    # CLEAN + TIMEZONE
+    # -----------------------------
+    if "created_at" in df.columns:
+        df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
 
-    if f_model:
-        lot_df = lot_df[lot_df["model_name"].str.contains(f_model, case=False, na=False)]
-    if f_lot:
-        lot_df = lot_df[lot_df["lot_no"].str.contains(f_lot, case=False, na=False)]
-
-    lot_df = lot_df.drop_duplicates(
-        subset=["kanban_no"]
-    )
+    if "last_scanned_at" in df.columns:
+        df["last_scanned_at (GMT+7)"] = df["last_scanned_at"].apply(to_gmt7)
 
     # -----------------------------
-    # LOAD DELIVERY
+    # FILTER
     # -----------------------------
-    del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no, created_at, last_scanned_at")
-        .execute()
-        .data,
-        ["kanban_no", "created_at", "last_scanned_at"]
-    )
+    if s_kanban:
+        df = df[df["kanban_no"].astype(str).str.contains(s_kanban, case=False, na=False)]
 
-    if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-        del_df["Delivered At"] = (
-            del_df["last_scanned_at"]
-            .fillna(del_df["created_at"])
-            .apply(to_gmt7)
-        )
-        del_df["sent"] = 1
-        del_df = del_df[["kanban_no", "Delivered At", "sent"]]
-    else:
-        del_df = pd.DataFrame(columns=["kanban_no", "Delivered At", "sent"])
+    if s_model and "model_name" in df.columns:
+        df = df[df["model_name"].astype(str).str.contains(s_model, case=False, na=False)]
+
+    if s_lot and "lot_no" in df.columns:
+        df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
 
     # -----------------------------
-    # MERGE
+    # SUMMARY (BASED ON FILTERED DATA)
     # -----------------------------
-    df = lot_df.merge(
-        del_df,
-        on="kanban_no",
-        how="left"
-    )
+    total_kanban = df["kanban_no"].nunique()
 
-    df["sent"] = df["sent"].fillna(0).astype(int)
+    delivered = df[
+        df["last_scanned_at"].notna() | df["created_at"].notna()
+    ]["kanban_no"].nunique()
 
-    # -----------------------------
-    # STATUS FILTER
-    # -----------------------------
-    if view_mode == "ส่งแล้ว":
-        df = df[df["sent"] == 1]
-    elif view_mode == "ยังไม่ส่ง":
-        df = df[df["sent"] == 0]
+    remaining = total_kanban - delivered
 
     # -----------------------------
-    # SUMMARY
+    # DISPLAY KPI
     # -----------------------------
-    total = len(df)
-    sent = df["sent"].sum()
-    remaining = total - sent
+    k1, k2, k3 = st.columns(3)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("📦 Total", total)
-    c2.metric("✅ Sent", sent)
-    c3.metric("⏳ Remaining", remaining)
+    k1.metric("📦 Total Kanban", total_kanban)
+    k2.metric("✅ Delivered", delivered)
+    k3.metric("⏳ Remaining", remaining)
 
     # -----------------------------
-    # DISPLAY
+    # SORT LATEST FIRST
+    # -----------------------------
+    if "created_at" in df.columns:
+        df = df.sort_values("created_at", ascending=False)
+
+    # -----------------------------
+    # DISPLAY TABLE (ALL COLUMNS)
     # -----------------------------
     st.dataframe(
-        df.sort_values("Delivered At", ascending=False),
+        df,
         use_container_width=True
     )
+
+    st.caption(f"📊 Showing {len(df)} records")
 
 
 
