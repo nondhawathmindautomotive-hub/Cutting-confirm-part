@@ -533,8 +533,9 @@ elif mode == "📦 Kanban Delivery Log":
 
     if f_lot:
         lot_df = lot_df[
-            lot_df["lot_no"].str.contains(f_lot, case=False, na=False)
+            lot_df["lot_no"] == f_lot.strip()
         ]
+
 
     if lot_df.empty:
         st.warning("ไม่พบข้อมูลตามเงื่อนไข")
@@ -610,3 +611,4 @@ elif mode == "📦 Kanban Delivery Log":
         ),
         use_container_width=True
     )
+
