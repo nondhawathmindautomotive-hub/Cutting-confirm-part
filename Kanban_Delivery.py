@@ -494,7 +494,7 @@ elif mode == "📦 Kanban Delivery Log":
     # MANUAL REFRESH
     # -----------------------------
     if st.button("🔄 Refresh Data"):
-        st.experimental_rerun()
+        st.rerun()
 
     # -----------------------------
     # LOAD DATA
@@ -545,6 +545,7 @@ elif mode == "📦 Kanban Delivery Log":
     # -----------------------------
     st.dataframe(df, use_container_width=True)
     st.caption(f"📊 Total records: {len(df)}")
+
 
 
 
