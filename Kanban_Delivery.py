@@ -202,56 +202,62 @@ if mode == "✅ Scan Kanban":
 # =====================================================
 # 📊 2) LOT KANBAN SUMMARY (PRODUCTION TRUTH)
 # =====================================================
-# =====================================================
-# 📊 LOT KANBAN SUMMARY (PRODUCTION - FIXED)
-# =====================================================
 elif mode == "📊 Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary (Production)")
 
-    # -----------------------------
+    # =====================================================
     # FILTER
-    # -----------------------------
+    # =====================================================
     c1, c2 = st.columns(2)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model (optional)")
 
     st.divider()
 
-    # =============================
-    # LOAD LOT MASTER (NO 1000 LIMIT)
-    # =============================
-    query = supabase.table("lot_master").select(
-        "kanban_no, model_name, lot_no"
-    )
-
+    # =====================================================
+    # LOAD LOT MASTER (🔥 NO 1000 LIMIT)
+    # =====================================================
     if f_lot:
-        lot_key = (
-            f_lot.strip()
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
+        query = (
+            supabase.table("lot_master")
+            .select("kanban_no, model_name, lot_no")
+            .eq("lot_no", f_lot.strip())
+            .range(0, 50000)
         )
-        query = query.ilike("lot_no", f"%{lot_key}%")
+    else:
+        query = (
+            supabase.table("lot_master")
+            .select("kanban_no, model_name, lot_no")
+            .range(0, 50000)
+        )
 
-    lot_df = safe_df(
-        query.range(0, 50000).execute().data
-    )
+    lot_df = safe_df(query.execute().data)
 
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
+        st.warning("❌ ไม่พบข้อมูล lot_master")
         st.stop()
 
-    # =============================
+    # =====================================================
     # NORMALIZE (CRITICAL)
-    # =============================
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+    # =====================================================
+    lot_df["kanban_no"] = (
+        lot_df["kanban_no"]
+        .astype(str)
+        .str.strip()
+    )
+
+    lot_df["model_name"] = (
+        lot_df["model_name"]
+        .astype(str)
+        .str.strip()
+    )
+
     lot_df["lot_no"] = (
         lot_df["lot_no"]
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"\s+", "", regex=True)
+        .str.replace(r"\s+", "", regex=True)   # 🔥 ตัด space / \r / \n
         .str.strip()
     )
 
@@ -261,20 +267,24 @@ elif mode == "📊 Lot Kanban Summary":
             .str.contains(f_model.strip(), case=False, na=False)
         ]
 
-    # =============================
-    # 📄 TOTAL RECORD (CSV LEVEL)
-    # =============================
-    total_record = len(lot_df)
+    if lot_df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+        st.stop()
 
-    # =============================
-    # ⚙️ TOTAL CIRCUIT (UNIQUE KANBAN)
-    # =============================
+    # =====================================================
+    # 📄 TOTAL RECORD (CSV LEVEL)
+    # =====================================================
+    total_record = len(lot_df)   # ← ต้องได้ 1365
+
+    # =====================================================
+    # ⚙️ TOTAL CIRCUIT (KANBAN UNIQUE)
+    # =====================================================
     circuit_df = lot_df.drop_duplicates(subset=["kanban_no"])
     total_circuit = len(circuit_df)
 
-    # =============================
-    # LOAD DELIVERY (TRACKING LOGIC เดิม)
-    # =============================
+    # =====================================================
+    # LOAD KANBAN DELIVERY (NO LIMIT)
+    # =====================================================
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
@@ -284,7 +294,11 @@ elif mode == "📊 Lot Kanban Summary":
     )
 
     if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+        del_df["kanban_no"] = (
+            del_df["kanban_no"]
+            .astype(str)
+            .str.strip()
+        )
 
     sent = circuit_df[
         circuit_df["kanban_no"].isin(del_df["kanban_no"])
@@ -292,9 +306,9 @@ elif mode == "📊 Lot Kanban Summary":
 
     remaining = total_circuit - sent
 
-    # =============================
-    # KPI DISPLAY (FINAL)
-    # =============================
+    # =====================================================
+    # KPI DISPLAY (ตามที่คุณต้องการ)
+    # =====================================================
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("📄 Total Record (CSV)", total_record)
     k2.metric("⚙️ Total Circuit", total_circuit)
@@ -303,14 +317,15 @@ elif mode == "📊 Lot Kanban Summary":
 
     st.divider()
 
-    # =============================
-    # DETAIL TABLE (AUDIT)
-    # =============================
-    sent_set = set(del_df["kanban_no"]) if not del_df.empty else set()
-
+    # =====================================================
+    # 📋 CIRCUIT DETAIL (AUDIT / TRACEABLE)
+    # =====================================================
+    circuit_df = circuit_df.copy()
     circuit_df["Status"] = circuit_df["kanban_no"].apply(
-        lambda x: "Sent" if x in sent_set else "Remaining"
+        lambda x: "Sent" if x in set(del_df["kanban_no"]) else "Remaining"
     )
+
+    st.subheader("📋 Circuit Detail (Audit)")
 
     st.dataframe(
         circuit_df.sort_values(
@@ -324,6 +339,7 @@ elif mode == "📊 Lot Kanban Summary":
         f"📊 CSV Record = {total_record} | "
         f"Production Circuit = {total_circuit}"
     )
+
 
 # =====================================================
 # 📦 3) KANBAN DELIVERY LOG
@@ -474,6 +490,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
