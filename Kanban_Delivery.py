@@ -245,104 +245,59 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
 # =====================================================
-# =====================================================
-# 📦 KANBAN DELIVERY LOG (MASTER + DELIVERY)
-# =====================================================
-elif mode == "Kanban Delivery Log":
+elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    f_kanban = c1.text_input("Kanban No.")
-    f_model  = c2.text_input("Model")
-    f_lot    = c3.text_input("Lot No.")
-    f_wire   = c4.text_input("Wire Number")
-    f_date   = c5.date_input("Scan Date", value=None)
+    c1, c2, c3 = st.columns(3)
+    c4, c5 = st.columns(2)
 
-    st.divider()
+    kanban = c1.text_input("Kanban No.")
+    model  = c2.text_input("Model")
+    lot    = c3.text_input("Lot No.")
+    wire   = c4.text_input("Wire Number")
+    scan_d = c5.date_input("Scan Date", value=None)
 
-    # -----------------------------
-    # LOAD LOT MASTER (BASE)
-    # -----------------------------
-    lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("kanban_no, model_name, lot_no, wire_number")
-        .range(0, 50000)
-        .execute()
-        .data
-    )
+    # 🔥 CALL RPC
+    params = {
+        "p_kanban": kanban or None,
+        "p_model": model or None,
+        "p_lot": lot or None,
+        "p_wire": wire or None,
+        "p_scan_date": scan_d.isoformat() if scan_d else None
+    }
 
-    if lot_df.empty:
-        st.error("❌ ไม่พบข้อมูล lot_master")
-        st.stop()
+    data = supabase.rpc(
+        "rpc_kanban_delivery_log",
+        params
+    ).execute().data
 
-    # Normalize
-    for c in ["kanban_no", "model_name", "lot_no", "wire_number"]:
-        lot_df[c] = lot_df[c].astype(str).str.strip()
-
-    lot_df["lot_no"] = lot_df["lot_no"].str.replace(".0", "", regex=False)
-
-    # -----------------------------
-    # LOAD DELIVERY (EVENT)
-    # -----------------------------
-    del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no, last_scanned_at")
-        .range(0, 50000)
-        .execute()
-        .data,
-        ["kanban_no", "last_scanned_at"]
-    )
-
-    if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-        del_df["Delivered At"] = del_df["last_scanned_at"].apply(to_gmt7)
-        del_df["Status"] = "Sent"
-        del_df = del_df[["kanban_no", "Delivered At", "Status"]]
-    else:
-        del_df = pd.DataFrame(
-            columns=["kanban_no", "Delivered At", "Status"]
-        )
-
-    # -----------------------------
-    # MERGE (LEFT JOIN)
-    # -----------------------------
-    df = lot_df.merge(
-        del_df,
-        on="kanban_no",
-        how="left"
-    )
-
-    df["Status"] = df["Status"].fillna("Not Sent")
-
-    # -----------------------------
-    # FILTER (ANY FIELD)
-    # -----------------------------
-    if f_kanban:
-        df = df[df["kanban_no"].str.contains(f_kanban, case=False)]
-
-    if f_model:
-        df = df[df["model_name"].str.contains(f_model, case=False)]
-
-    if f_lot:
-        df = df[df["lot_no"] == f_lot.strip()]
-
-    if f_wire:
-        df = df[df["wire_number"].str.contains(f_wire, case=False)]
-
-    if f_date:
-        df = df[
-            pd.to_datetime(df["Delivered At"], errors="coerce")
-            .dt.date == f_date
-        ]
+    df = safe_df(data)
 
     if df.empty:
         st.warning("❌ ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
         st.stop()
 
-    # -----------------------------
+    # =============================
+    # FORMAT TIME
+    # =============================
+    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+
+    # =============================
+    # KPI
+    # =============================
+    total = len(df)
+    sent = len(df[df["delivery_status"] == "Sent"])
+    remaining = total - sent
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total", total)
+    k2.metric("✅ Sent", sent)
+    k3.metric("⏳ Not Sent", remaining)
+
+    # =============================
     # DISPLAY
-    # -----------------------------
+    # =============================
     st.dataframe(
         df[
             [
@@ -350,15 +305,14 @@ elif mode == "Kanban Delivery Log":
                 "model_name",
                 "lot_no",
                 "wire_number",
-                "Status",
-                "Delivered At"
+                "delivery_status",
+                "Delivered At (GMT+7)"
             ]
-        ].sort_values("Delivered At", ascending=False),
+        ],
         use_container_width=True
     )
 
-    st.caption(f"📊 แสดงผล {len(df)} รายการ (รวมที่ยังไม่ Scan)")
-
+    st.caption("📊 Source: RPC (lot_master LEFT JOIN kanban_delivery)")
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -400,6 +354,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
