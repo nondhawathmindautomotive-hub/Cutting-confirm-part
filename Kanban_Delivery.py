@@ -150,6 +150,9 @@ elif mode == "Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary")
 
+    # =============================
+    # FILTER
+    # =============================
     c1, c2, c3 = st.columns(3)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
@@ -167,7 +170,36 @@ elif mode == "Lot Kanban Summary":
         st.info("กรุณาใส่ Lot No.")
         st.stop()
 
-    with st.spinner("กำลังโหลดข้อมูลจากฐานจริง..."):
+    # =====================================================
+    # 🔢 KPI — SOURCE OF TRUTH (NO LIMIT, COUNT FROM DB)
+    # =====================================================
+    with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
+        kpi_res = supabase.rpc(
+            "rpc_lot_kanban_kpi",
+            {"p_lot_no": f_lot.strip()}
+        ).execute()
+
+    if not kpi_res.data:
+        st.warning("ไม่พบข้อมูล Lot นี้")
+        st.stop()
+
+    kpi = kpi_res.data[0]
+
+    total_kanban = int(kpi["total_kanban"])
+    sent_kanban = int(kpi["sent_kanban"])
+    remaining_kanban = int(kpi["remaining_kanban"])
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total Kanban", total_kanban)
+    k2.metric("✅ Sent", sent_kanban)
+    k3.metric("⏳ Remaining", remaining_kanban)
+
+    st.divider()
+
+    # =====================================================
+    # 📋 CIRCUIT TABLE — DETAIL VIEW (FILTERABLE)
+    # =====================================================
+    with st.spinner("กำลังโหลดรายการวงจร..."):
         res = supabase.rpc(
             "rpc_lot_kanban_circuits",
             {
@@ -180,25 +212,11 @@ elif mode == "Lot Kanban Summary":
     df = safe_df(res.data)
 
     if df.empty:
-        st.warning("ไม่พบข้อมูล")
+        st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
         st.stop()
 
     # =============================
-    # KPI (TRUTH FROM RPC)
-    # =============================
-    total = len(df)
-    sent = int(df["sent"].sum())
-    remaining = total - sent
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total Kanban", total)
-    k2.metric("✅ Sent", sent)
-    k3.metric("⏳ Remaining", remaining)
-
-    st.divider()
-
-    # =============================
-    # FORMAT TIME
+    # FORMAT
     # =============================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
     df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
@@ -221,7 +239,8 @@ elif mode == "Lot Kanban Summary":
     )
 
     st.caption(
-        f"📊 Source: rpc_lot_kanban_circuits | Lot {f_lot} | Total = {total}"
+        f"📊 Source: rpc_lot_kanban_kpi + rpc_lot_kanban_circuits | "
+        f"Lot {f_lot} | Total จริง = {total_kanban}"
     )
 
 
@@ -337,6 +356,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
