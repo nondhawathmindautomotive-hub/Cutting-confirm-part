@@ -78,13 +78,13 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        now_ts = pd.Timestamp.now(
-            tz="Asia/Bangkok"
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
 
         base = (
             supabase.table("lot_master")
-            .select("kanban_no, model_name, lot_no, joint_a, joint_b")
+            .select(
+                "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
+            )
             .eq("kanban_no", kanban)
             .limit(1)
             .execute()
@@ -92,69 +92,20 @@ if mode == "Scan Kanban":
         )
 
         if not base:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban")
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
             st.session_state.scan = ""
             return
 
         row = base[0]
         model = norm(row["model_name"])
-        lot = norm_lot(row["lot_no"])
+        lot = norm(row["lot_no"])
+        wire_number = norm(row.get("wire_number"))
         joint_a = norm(row.get("joint_a"))
         joint_b = norm(row.get("joint_b"))
 
-        is_joint = bool(joint_a or joint_b)
-
-        # ---------- JOINT ----------
-        if is_joint:
-            rows = (
-                supabase.table("lot_master")
-                .select("kanban_no, joint_a, joint_b")
-                .eq("model_name", model)
-                .eq("lot_no", lot)
-                .execute()
-                .data
-            )
-
-            joint_list = []
-            for r in rows:
-                if joint_a and norm(r.get("joint_a")) == joint_a:
-                    joint_list.append(norm(r["kanban_no"]))
-                elif joint_b and norm(r.get("joint_b")) == joint_b:
-                    joint_list.append(norm(r["kanban_no"]))
-
-            joint_list = list(set(joint_list))
-
-            exist = (
-                supabase.table("kanban_delivery")
-                .select("kanban_no")
-                .in_("kanban_no", joint_list)
-                .execute()
-                .data
-            )
-            exist_set = {x["kanban_no"] for x in exist}
-
-            to_insert = [
-                {
-                    "kanban_no": k,
-                    "model_name": model,
-                    "lot_no": lot,
-                    "last_scanned_at": now_ts
-                }
-                for k in joint_list if k not in exist_set
-            ]
-
-            if to_insert:
-                supabase.table("kanban_delivery").insert(to_insert).execute()
-
-            supabase.table("kanban_delivery").update(
-                {"last_scanned_at": now_ts}
-            ).in_("kanban_no", joint_list).execute()
-
-            st.success(f"✅ Joint Scan สำเร็จ | Qty = {len(joint_list)}")
-            st.session_state.scan = ""
-            return
-
-        # ---------- NORMAL ----------
+        # -------------------------
+        # CHECK EXIST
+        # -------------------------
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -163,26 +114,34 @@ if mode == "Scan Kanban":
             .data
         )
 
-        if exist:
-            supabase.table("kanban_delivery").update(
-                {"last_scanned_at": now_ts}
-            ).eq("kanban_no", kanban).execute()
-
-            st.success("🔄 Scan ซ้ำ (อัปเดตเวลา)")
-            st.session_state.scan = ""
-            return
-
-        supabase.table("kanban_delivery").insert({
+        payload = {
             "kanban_no": kanban,
             "model_name": model,
             "lot_no": lot,
+            "wire_number": wire_number,
             "last_scanned_at": now_ts
-        }).execute()
+        }
 
-        st.success("✅ ส่ง Kanban สำเร็จ")
+        if exist:
+            supabase.table("kanban_delivery").update(payload)\
+                .eq("kanban_no", kanban).execute()
+            st.session_state.msg = ("success", "🔄 Scan ซ้ำ (อัปเดตเวลา)")
+        else:
+            supabase.table("kanban_delivery").insert(payload).execute()
+            st.session_state.msg = ("success", "✅ ส่ง Kanban สำเร็จ")
+
         st.session_state.scan = ""
 
-    st.text_input("Scan Kanban No.", key="scan", on_change=confirm_scan)
+    st.text_input(
+        "Scan Kanban No.",
+        key="scan",
+        on_change=confirm_scan
+    )
+
+    if "msg" in st.session_state:
+        t, m = st.session_state.msg
+        getattr(st, t)(m)
+        del st.session_state.msg
 
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
@@ -460,6 +419,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
