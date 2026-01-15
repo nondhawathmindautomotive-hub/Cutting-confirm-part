@@ -223,7 +223,15 @@ elif mode == "📊 Lot Kanban Summary":
     )
 
     if f_lot:
-        lm_query = lm_query.eq("lot_no", f_lot.strip())
+        lot_key = (
+            f_lot.strip()
+            .replace(" ", "")
+            .replace("\r", "")
+            .replace("\n", "")
+        )
+
+    lm_query = lm_query.ilike("lot_no", f"%{lot_key}%")
+
 
     if f_model:
         lm_query = lm_query.ilike("model_name", f"%{f_model.strip()}%")
@@ -469,6 +477,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
