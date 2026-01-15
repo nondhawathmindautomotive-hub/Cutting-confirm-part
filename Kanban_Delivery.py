@@ -202,53 +202,53 @@ if mode == "✅ Scan Kanban":
 # =====================================================
 # 📊 2) LOT KANBAN SUMMARY (PRODUCTION TRUTH)
 # =====================================================
-elif mode == "📊 Lot Kanban Summary (Production)":
+    elif mode == "📊 Lot Kanban Summary (Production)":
 
-    st.header("📊 Lot Kanban Summary (Production)")
+        st.header("📊 Lot Kanban Summary (Production)")
 
-    c1, c2 = st.columns(2)
-    f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
-    f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
+        c1, c2 = st.columns(2)
+        f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
+        f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
 
     # -----------------------------
     # LOAD FROM VIEW (SOURCE OF TRUTH)
     # -----------------------------
-    query = supabase.table("vw_lot_kanban_summary").select("*")
+        query = supabase.table("vw_lot_kanban_summary").select("*")
 
-    if f_lot:
-        query = query.eq("lot_no", f_lot.strip())
+        if f_lot:
+            query = query.eq("lot_no", f_lot.strip())
 
-    if f_model:
-        query = query.ilike("model_name", f"%{f_model.strip()}%")
+        if f_model:
+            query = query.ilike("model_name", f"%{f_model.strip()}%")
 
-    data = query.range(0, 50000).execute().data
-    df = safe_df(data)
+        data = query.range(0, 50000).execute().data
+        df = safe_df(data)
 
-    if df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
+        if df.empty:
+            st.warning("ไม่พบข้อมูลตามเงื่อนไข")
+            st.stop()
 
     # -----------------------------
     # KPI
     # -----------------------------
-    total = int(df["total_kanban"].sum())
-    sent = int(df["sent_kanban"].sum())
-    remaining = int(df["remaining_kanban"].sum())
+        total = int(df["total_kanban"].sum())
+        sent = int(df["sent_kanban"].sum())
+        remaining = int(df["remaining_kanban"].sum())
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total Kanban", total)
-    k2.metric("✅ Sent", sent)
-    k3.metric("⏳ Remaining", remaining)
+        k1, k2, k3 = st.columns(3)
+        k1.metric("📦 Total Kanban", total)
+        k2.metric("✅ Sent", sent)
+        k3.metric("⏳ Remaining", remaining)
 
     # -----------------------------
     # DISPLAY
     # -----------------------------
-    st.dataframe(
-        df.sort_values(["lot_no", "model_name"]),
-        use_container_width=True
-    )
+        st.dataframe(
+            df.sort_values(["lot_no", "model_name"]),
+            use_container_width=True
+        )
 
-    st.caption(f"📊 แสดงผล {len(df)} รายการ (จากฐานข้อมูลจริง)")
+        st.caption(f"📊 แสดงผล {len(df)} รายการ (จากฐานข้อมูลจริง)")
 
 # =====================================================
 # 📦 3) KANBAN DELIVERY LOG
@@ -399,6 +399,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
