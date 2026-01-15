@@ -476,99 +476,127 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG
+# 5) KANBAN DELIVERY LOG (LOT MASTER BASED)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # SEARCH
+    # FILTER BAR
     # -----------------------------
-    c1, c2, c3 = st.columns(3)
-    s_kanban = c1.text_input("Kanban No.")
-    s_model = c2.text_input("Model")
-    s_lot = c3.text_input("Lot No.")
+    c1, c2, c3, c4 = st.columns(4)
+    f_lot = c1.text_input("Lot No.")
+    f_model = c2.text_input("Model")
+    view_mode = c3.selectbox(
+        "แสดงวงจร",
+        ["ทั้งหมด", "Scan แล้ว", "ยังไม่ Scan"]
+    )
+    refresh = c4.button("🔄 Refresh")
 
     # -----------------------------
-    # MANUAL REFRESH
+    # LOAD LOT MASTER (BASE)
     # -----------------------------
-    if st.button("🔄 Refresh Data"):
-        st.rerun()
+    lot_raw = (
+        supabase.table("lot_master")
+        .select("kanban_no, model_name, lot_no")
+        .execute()
+        .data
+    )
+
+    lot_df = safe_df(lot_raw)
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล lot_master")
+        st.stop()
+
+    for c in ["kanban_no", "model_name", "lot_no"]:
+        lot_df[c] = lot_df[c].astype(str).str.strip()
 
     # -----------------------------
-    # LOAD DATA
+    # APPLY FILTER (LOT / MODEL)
     # -----------------------------
-    data = (
+    if f_lot:
+        lot_df = lot_df[
+            lot_df["lot_no"].str.contains(f_lot.strip(), case=False, na=False)
+        ]
+
+    if f_model:
+        lot_df = lot_df[
+            lot_df["model_name"].str.contains(f_model.strip(), case=False, na=False)
+        ]
+
+    # -----------------------------
+    # UNIQUE KANBAN (MASTER TRUTH)
+    # -----------------------------
+    lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
+
+    total_qty = lot_df["kanban_no"].nunique()
+
+    # -----------------------------
+    # LOAD DELIVERY
+    # -----------------------------
+    del_raw = (
         supabase.table("kanban_delivery")
         .select("*")
         .execute()
         .data
     )
 
-    df = safe_df(data)
+    del_df = safe_df(del_raw)
 
-    if df.empty:
-        st.warning("ไม่พบข้อมูล kanban_delivery")
-        st.stop()
-
-    # -----------------------------
-    # CLEAN + TIMEZONE
-    # -----------------------------
-    if "created_at" in df.columns:
-        df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
-
-    if "last_scanned_at" in df.columns:
-        df["last_scanned_at (GMT+7)"] = df["last_scanned_at"].apply(to_gmt7)
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+        del_df["created_at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
+        if "last_scanned_at" in del_df.columns:
+            del_df["last_scanned_at (GMT+7)"] = del_df["last_scanned_at"].apply(to_gmt7)
 
     # -----------------------------
-    # FILTER
+    # MERGE (MASTER ⟂ DELIVERY)
     # -----------------------------
-    if s_kanban:
-        df = df[df["kanban_no"].astype(str).str.contains(s_kanban, case=False, na=False)]
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left",
+        indicator=True
+    )
 
-    if s_model and "model_name" in df.columns:
-        df = df[df["model_name"].astype(str).str.contains(s_model, case=False, na=False)]
+    df["status"] = df["_merge"].map({
+        "both": "Scan แล้ว",
+        "left_only": "ยังไม่ Scan"
+    })
 
-    if s_lot and "lot_no" in df.columns:
-        df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
-
-    # -----------------------------
-    # SUMMARY (BASED ON FILTERED DATA)
-    # -----------------------------
-    total_kanban = df["kanban_no"].nunique()
-
-    delivered = df[
-        df["last_scanned_at"].notna() | df["created_at"].notna()
-    ]["kanban_no"].nunique()
-
-    remaining = total_kanban - delivered
+    delivered_qty = (df["status"] == "Scan แล้ว").sum()
+    remaining_qty = total_qty - delivered_qty
 
     # -----------------------------
-    # DISPLAY KPI
+    # SUMMARY DISPLAY
     # -----------------------------
-    k1, k2, k3 = st.columns(3)
-
-    k1.metric("📦 Total Kanban", total_kanban)
-    k2.metric("✅ Delivered", delivered)
-    k3.metric("⏳ Remaining", remaining)
+    s1, s2, s3 = st.columns(3)
+    s1.metric("📦 Total Kanban", total_qty)
+    s2.metric("✅ Scan แล้ว", delivered_qty)
+    s3.metric("⏳ คงเหลือ", remaining_qty)
 
     # -----------------------------
-    # SORT LATEST FIRST
+    # DROPDOWN FILTER
+    # -----------------------------
+    if view_mode != "ทั้งหมด":
+        df = df[df["status"] == view_mode]
+
+    # -----------------------------
+    # SORT LATEST
     # -----------------------------
     if "created_at" in df.columns:
         df = df.sort_values("created_at", ascending=False)
 
     # -----------------------------
-    # DISPLAY TABLE (ALL COLUMNS)
+    # DISPLAY TABLE
     # -----------------------------
     st.dataframe(
-        df,
+        df.drop(columns=["_merge"]),
         use_container_width=True
     )
 
-    st.caption(f"📊 Showing {len(df)} records")
-
+    st.caption(f"📊 แสดง {len(df)} วงจร")
 
 
 
