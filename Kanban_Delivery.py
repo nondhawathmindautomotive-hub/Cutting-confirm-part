@@ -206,56 +206,98 @@ elif mode == "📊 Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary (Production)")
 
-    # -----------------------------
+    # =====================================================
     # FILTER
-    # -----------------------------
+    # =====================================================
     c1, c2 = st.columns(2)
-    f_lot = c1.text_input("Lot No.")
-    f_model = c2.text_input("Model")
+    f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
+    f_model = c2.text_input("Model (optional)")
 
-    # -----------------------------
-    # LOAD SUMMARY TABLE
-    # -----------------------------
-    query = supabase.table("lot_kanban_summary").select(
+    st.divider()
+
+    # =====================================================
+    # 1) 📄 TOTAL RECORD (CSV LEVEL) → lot_master (RAW)
+    # =====================================================
+    lm_query = supabase.table("lot_master").select(
+        "kanban_no, model_name, lot_no"
+    )
+
+    if f_lot:
+        lm_query = lm_query.eq("lot_no", f_lot.strip())
+
+    if f_model:
+        lm_query = lm_query.ilike("model_name", f"%{f_model.strip()}%")
+
+    # 🔥 สำคัญ: ต้องใช้ range เพื่อไม่ติด limit 1000
+    lot_df = safe_df(
+        lm_query.range(0, 50000).execute().data
+    )
+
+    if lot_df.empty:
+        st.warning("❌ ไม่พบข้อมูล lot_master")
+        st.stop()
+
+    # Normalize
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+    lot_df["lot_no"] = (
+        lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
+    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+
+    total_record = len(lot_df)   # 👈 CSV จริง เช่น 1365
+
+    # =====================================================
+    # 2) ⚙️ SUMMARY TABLE → lot_kanban_summary (PRODUCTION)
+    # =====================================================
+    sum_query = supabase.table("lot_kanban_summary").select(
         "lot_no, model_name, total_circuit, sent_circuit, remaining_circuit, last_updated_at"
     )
 
     if f_lot:
-        query = query.ilike("lot_no", f"%{f_lot.strip()}%")
+        sum_query = sum_query.eq("lot_no", f_lot.strip())
 
     if f_model:
-        query = query.ilike("model_name", f"%{f_model.strip()}%")
+        sum_query = sum_query.ilike("model_name", f"%{f_model.strip()}%")
 
-    data = query.execute().data
-    df = safe_df(data)
+    sum_df = safe_df(
+        sum_query.range(0, 50000).execute().data
+    )
 
-    if df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
+    if sum_df.empty:
+        st.warning("❌ ไม่พบข้อมูลใน lot_kanban_summary")
         st.stop()
 
-    # -----------------------------
-    # KPI SUMMARY (FROM SUMMARY TABLE)
-    # -----------------------------
-    total = int(df["total_circuit"].sum())
-    sent = int(df["sent_circuit"].sum())
-    remaining = int(df["remaining_circuit"].sum())
+    # =====================================================
+    # 3) KPI (SOURCE OF TRUTH)
+    # =====================================================
+    total_circuit = int(sum_df["total_circuit"].sum())
+    sent = int(sum_df["sent_circuit"].sum())
+    remaining = int(sum_df["remaining_circuit"].sum())
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total Circuit", total)
-    k2.metric("✅ Sent", sent)
-    k3.metric("⏳ Remaining", remaining)
+    # =====================================================
+    # 4) DISPLAY KPI (ตามที่คุณต้องการเป๊ะ)
+    # =====================================================
+    k1, k2, k3, k4 = st.columns(4)
+
+    k1.metric("📄 Total Record (CSV)", total_record)
+    k2.metric("⚙️ Total Circuit", total_circuit)
+    k3.metric("✅ Sent", sent)
+    k4.metric("⏳ Remaining", remaining)
 
     st.divider()
 
-    # -----------------------------
-    # FORMAT TIME
-    # -----------------------------
-    if "last_updated_at" in df.columns:
-        df["Last Update (GMT+7)"] = df["last_updated_at"].apply(to_gmt7)
+    # =====================================================
+    # 5) FORMAT TIME
+    # =====================================================
+    if "last_updated_at" in sum_df.columns:
+        sum_df["Last Update (GMT+7)"] = sum_df["last_updated_at"].apply(to_gmt7)
 
-    # -----------------------------
-    # DISPLAY TABLE
-    # -----------------------------
+    # =====================================================
+    # 6) DISPLAY TABLE (AUDITABLE)
+    # =====================================================
     show_cols = [
         "lot_no",
         "model_name",
@@ -266,14 +308,17 @@ elif mode == "📊 Lot Kanban Summary":
     ]
 
     st.dataframe(
-        df[show_cols].sort_values(
+        sum_df[show_cols].sort_values(
             ["lot_no", "model_name"],
             ascending=True
         ),
         use_container_width=True
     )
 
-    st.caption(f"📊 แสดงผลทั้งหมด {len(df)} Lot / Model")
+    st.caption(
+        f"📊 CSV Record = {total_record} | "
+        f"Production Circuit = {total_circuit}"
+    )
 
 # =====================================================
 # 📦 3) KANBAN DELIVERY LOG
@@ -424,6 +469,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
