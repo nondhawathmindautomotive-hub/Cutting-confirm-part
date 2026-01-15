@@ -476,24 +476,24 @@ elif mode == "🔐📤 Upload Lot Master":
         st.success(f"✅ Upload สำเร็จ {len(df)} รายการ")
 
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG (LOT MASTER = SOURCE OF TRUTH)
+# 5) 📦 KANBAN DELIVERY LOG (LOT MASTER BASED - FINAL)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # SEARCH
+    # SEARCH INPUT
     # -----------------------------
     c1, c2, c3 = st.columns(3)
     f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วนได้)")
-    f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
-    f_lot = c3.text_input("Lot No.")
+    f_model  = c2.text_input("Model (ค้นหาบางส่วนได้)")
+    f_lot    = c3.text_input("Lot No.")
 
     st.divider()
 
     # -----------------------------
-    # LOAD LOT MASTER (🔥 NO 1000 LIMIT)
+    # LOAD LOT MASTER (NO 1000 LIMIT)
     # -----------------------------
     lot_raw = (
         supabase.table("lot_master")
@@ -510,39 +510,44 @@ elif mode == "📦 Kanban Delivery Log":
         st.stop()
 
     # -----------------------------
-    # NORMALIZE DATA (🔥 CRITICAL)
+    # HARD NORMALIZE (โรงงานจริง)
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
+
     lot_df["lot_no"] = (
         lot_df["lot_no"]
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
+        .str.replace(r"[^0-9A-Za-z]", "", regex=True)  # 🔥 ตัด space, \r, -
         .str.strip()
     )
 
     # -----------------------------
-    # APPLY FILTER (SAFE / USER FRIENDLY)
+    # APPLY FILTER
     # -----------------------------
     if f_lot:
+        lot_key = (
+            f_lot.strip()
+            .replace(" ", "")
+            .replace("-", "")
+        )
         lot_df = lot_df[
             lot_df["lot_no"].str.contains(
-                f_lot.strip(), case=False, na=False
-            )
-        ]
-
-    if f_kanban:
-        lot_df = lot_df[
-            lot_df["kanban_no"].str.contains(
-                f_kanban.strip(), case=False, na=False
+                lot_key, case=False, na=False
             )
         ]
 
     if f_model:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(
-                f_model.strip(), case=False, na=False
-            )
+            lot_df["model_name"]
+            .str.contains(f_model.strip(), case=False, na=False)
+        ]
+
+    if f_kanban:
+        lot_df = lot_df[
+            lot_df["kanban_no"]
+            .str.contains(f_kanban.strip(), case=False, na=False)
         ]
 
     if lot_df.empty:
@@ -555,7 +560,7 @@ elif mode == "📦 Kanban Delivery Log":
     lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
 
     # -----------------------------
-    # LOAD DELIVERY TABLE (EVENT LOG)
+    # LOAD DELIVERY TABLE (NO LIMIT)
     # -----------------------------
     del_raw = (
         supabase.table("kanban_delivery")
@@ -593,7 +598,7 @@ elif mode == "📦 Kanban Delivery Log":
         )
 
     # -----------------------------
-    # MERGE (LEFT JOIN)
+    # MERGE (LOT MASTER = TRUTH)
     # -----------------------------
     df = lot_df.merge(
         del_df,
@@ -604,7 +609,7 @@ elif mode == "📦 Kanban Delivery Log":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # KPI SUMMARY (✅ TRUTH)
+    # KPI SUMMARY (REAL COUNT)
     # -----------------------------
     total = len(df)
     sent = int(df["sent"].sum())
@@ -616,7 +621,7 @@ elif mode == "📦 Kanban Delivery Log":
     k3.metric("⏳ Remaining", remaining)
 
     # -----------------------------
-    # DISPLAY RESULT
+    # DISPLAY
     # -----------------------------
     st.dataframe(
         df.sort_values(
@@ -628,6 +633,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+
 
 
 
