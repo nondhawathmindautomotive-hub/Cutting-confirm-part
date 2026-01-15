@@ -153,3 +153,76 @@ if mode == "📊 Lot Kanban Summary":
             [
                 "lot_no",
                 "model_name",
+                "total_circuit",
+                "sent_circuit",
+                "remaining_circuit",
+                "Last Update (GMT+7)",
+            ]
+        ].sort_values(["lot_no", "model_name"]),
+        use_container_width=True,
+    )
+
+    st.caption(
+        f"📄 CSV Record = {total_record} | "
+        f"⚙️ Circuit = {total_circuit}"
+    )
+
+# =====================================================
+# 📦 KANBAN DELIVERY LOG
+# =====================================================
+elif mode == "📦 Kanban Delivery Log":
+
+    st.header("📦 Kanban Delivery Log")
+
+    lot_df = safe_df(
+        supabase.table("lot_master")
+        .select("kanban_no, model_name, lot_no")
+        .range(0, 50000)
+        .execute().data
+    )
+
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select("kanban_no, created_at, last_scanned_at")
+        .range(0, 50000)
+        .execute().data
+    )
+
+    if lot_df.empty:
+        st.error("❌ ไม่พบ lot_master")
+        st.stop()
+
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+    lot_df["lot_no"] = lot_df["lot_no"].apply(norm_lot)
+
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+        del_df["Delivered At"] = (
+            del_df["last_scanned_at"]
+            .fillna(del_df["created_at"])
+            .apply(to_gmt7)
+        )
+
+    df = lot_df.merge(
+        del_df[["kanban_no", "Delivered At"]],
+        on="kanban_no",
+        how="left"
+    )
+
+    df["Status"] = df["Delivered At"].apply(
+        lambda x: "Sent" if x else "Remaining"
+    )
+
+    st.dataframe(df, use_container_width=True)
+
+# =====================================================
+# 🔍 TRACKING SEARCH
+# =====================================================
+elif mode == "🔍 Tracking Search":
+    st.info("ใช้ logic เดิมของคุณได้ (ไม่กระทบ summary)")
+
+# =====================================================
+# 🔐📤 UPLOAD LOT MASTER
+# =====================================================
+elif mode == "🔐📤 Upload Lot Master":
+    st.info("ใช้ logic Upload เดิมได้")
