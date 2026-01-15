@@ -40,6 +40,7 @@ mode = st.sidebar.radio(
         "🔍 Tracking Search",
         "🔐📤 Upload Lot Master",
         "📦 Kanban Delivery Log",
+        "📊 Lot Kanban Summary",
     ]
 )
 
@@ -474,6 +475,78 @@ elif mode == "🔐📤 Upload Lot Master":
         ).execute()
 
         st.success(f"✅ Upload สำเร็จ {len(df)} รายการ")
+elif mode == "📊 Lot Kanban Summary":
+
+    st.header("📊 Lot Kanban Summary (Production)")
+
+    # -----------------------------
+    # FILTER
+    # -----------------------------
+    c1, c2 = st.columns(2)
+    f_lot = c1.text_input("Lot No.")
+    f_model = c2.text_input("Model")
+
+    # -----------------------------
+    # LOAD SUMMARY TABLE
+    # -----------------------------
+    query = supabase.table("lot_kanban_summary").select(
+        "lot_no, model_name, total_circuit, sent_circuit, remaining_circuit, last_updated_at"
+    )
+
+    if f_lot:
+        query = query.ilike("lot_no", f"%{f_lot.strip()}%")
+
+    if f_model:
+        query = query.ilike("model_name", f"%{f_model.strip()}%")
+
+    data = query.execute().data
+    df = safe_df(data)
+
+    if df.empty:
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
+        st.stop()
+
+    # -----------------------------
+    # KPI SUMMARY (FROM SUMMARY TABLE)
+    # -----------------------------
+    total = int(df["total_circuit"].sum())
+    sent = int(df["sent_circuit"].sum())
+    remaining = int(df["remaining_circuit"].sum())
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total Circuit", total)
+    k2.metric("✅ Sent", sent)
+    k3.metric("⏳ Remaining", remaining)
+
+    st.divider()
+
+    # -----------------------------
+    # FORMAT TIME
+    # -----------------------------
+    if "last_updated_at" in df.columns:
+        df["Last Update (GMT+7)"] = df["last_updated_at"].apply(to_gmt7)
+
+    # -----------------------------
+    # DISPLAY TABLE
+    # -----------------------------
+    show_cols = [
+        "lot_no",
+        "model_name",
+        "total_circuit",
+        "sent_circuit",
+        "remaining_circuit",
+        "Last Update (GMT+7)"
+    ]
+
+    st.dataframe(
+        df[show_cols].sort_values(
+            ["lot_no", "model_name"],
+            ascending=True
+        ),
+        use_container_width=True
+    )
+
+    st.caption(f"📊 แสดงผลทั้งหมด {len(df)} Lot / Model")
 
 # =====================================================
 # 5) 📦 KANBAN DELIVERY LOG (LOT MASTER BASED - FINAL)
@@ -633,6 +706,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+
 
 
 
