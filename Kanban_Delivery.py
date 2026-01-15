@@ -476,7 +476,7 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) KANBAN DELIVERY LOG (MANUAL REFRESH / REAL DATA)
+# 5) 📦 KANBAN DELIVERY LOG
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
@@ -502,7 +502,6 @@ elif mode == "📦 Kanban Delivery Log":
     data = (
         supabase.table("kanban_delivery")
         .select("*")
-        .order("created_at", desc=True)
         .execute()
         .data
     )
@@ -514,7 +513,7 @@ elif mode == "📦 Kanban Delivery Log":
         st.stop()
 
     # -----------------------------
-    # TIMEZONE (GMT+7)
+    # CLEAN + TIMEZONE
     # -----------------------------
     if "created_at" in df.columns:
         df["created_at (GMT+7)"] = df["created_at"].apply(to_gmt7)
@@ -535,38 +534,40 @@ elif mode == "📦 Kanban Delivery Log":
         df = df[df["lot_no"].astype(str).str.contains(s_lot, case=False, na=False)]
 
     # -----------------------------
+    # SUMMARY (BASED ON FILTERED DATA)
+    # -----------------------------
+    total_kanban = df["kanban_no"].nunique()
+
+    delivered = df[
+        df["last_scanned_at"].notna() | df["created_at"].notna()
+    ]["kanban_no"].nunique()
+
+    remaining = total_kanban - delivered
+
+    # -----------------------------
+    # DISPLAY KPI
+    # -----------------------------
+    k1, k2, k3 = st.columns(3)
+
+    k1.metric("📦 Total Kanban", total_kanban)
+    k2.metric("✅ Delivered", delivered)
+    k3.metric("⏳ Remaining", remaining)
+
+    # -----------------------------
     # SORT LATEST FIRST
     # -----------------------------
     if "created_at" in df.columns:
         df = df.sort_values("created_at", ascending=False)
 
     # -----------------------------
-    # DISPLAY
+    # DISPLAY TABLE (ALL COLUMNS)
     # -----------------------------
-    st.dataframe(df, use_container_width=True)
-    st.caption(f"📊 Total records: {len(df)}")
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    st.caption(f"📊 Showing {len(df)} records")
 
 
 
