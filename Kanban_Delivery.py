@@ -245,10 +245,7 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
 # =====================================================
-# =====================================================
-# 📦 KANBAN DELIVERY LOG (SEARCH ANY FIELD)
-# =====================================================
-elif mode == "Kanban Delivery Log":
+elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
@@ -262,7 +259,7 @@ elif mode == "Kanban Delivery Log":
     st.divider()
 
     # -----------------------------
-    # LOAD DELIVERY LOG (NO JOIN)
+    # LOAD DELIVERY LOG (SOURCE OF TRUTH)
     # -----------------------------
     df = safe_df(
         supabase.table("kanban_delivery")
@@ -291,23 +288,37 @@ elif mode == "Kanban Delivery Log":
     )
 
     # -----------------------------
-    # APPLY FILTER (ANY ONE MATCH)
+    # OR SEARCH LOGIC (KEY FIX)
     # -----------------------------
+    masks = []
+
     if f_kanban:
-        df = df[df["kanban_no"].str.contains(f_kanban, case=False, na=False)]
+        masks.append(df["kanban_no"].str.contains(f_kanban, case=False, na=False))
 
     if f_model:
-        df = df[df["model_name"].str.contains(f_model, case=False, na=False)]
+        masks.append(df["model_name"].str.contains(f_model, case=False, na=False))
 
     if f_lot:
-        df = df[df["lot_no"].str.contains(f_lot, case=False, na=False)]
+        masks.append(df["lot_no"].str.contains(f_lot, case=False, na=False))
 
     if f_wire:
-        df = df[df["wire_number"].str.contains(f_wire, case=False, na=False)]
+        masks.append(df["wire_number"].str.contains(f_wire, case=False, na=False))
 
     if f_date:
         df["_date"] = pd.to_datetime(df["Delivered At"], errors="coerce").dt.date
-        df = df[df["_date"] == f_date]
+        masks.append(df["_date"] == f_date)
+
+    # ❗ ต้องกรอกอย่างน้อย 1 ช่อง
+    if not masks:
+        st.info("ℹ️ กรุณากรอกอย่างน้อย 1 ช่องเพื่อค้นหา")
+        st.stop()
+
+    # APPLY OR
+    final_mask = masks[0]
+    for m in masks[1:]:
+        final_mask = final_mask | m
+
+    df = df[final_mask]
 
     if df.empty:
         st.warning("❌ ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
@@ -329,7 +340,7 @@ elif mode == "Kanban Delivery Log":
         use_container_width=True
     )
 
-    st.caption(f"📊 พบ {len(df)} รายการ (จาก kanban_delivery จริง)")
+    st.caption(f"📊 พบ {len(df)} รายการ (จาก kanban_delivery)")
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -371,6 +382,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
