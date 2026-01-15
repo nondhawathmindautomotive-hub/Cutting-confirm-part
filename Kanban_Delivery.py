@@ -284,24 +284,22 @@ elif mode == "Lot Kanban Summary":
 
 
 # =====================================================
-# 📦 KANBAN DELIVERY LOG (FINAL / SEARCH ENABLED)
+# 📦 KANBAN DELIVERY LOG (FINAL / SEARCH + WIRE NUMBER)
 # =====================================================
-elif mode == "Kanban Delivery Log":
+elif mode == "📦 Kanban Delivery Log":
 
-    st.header("Kanban Delivery Log")
+    st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
     # SEARCH CONDITION
     # -----------------------------
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วน)")
-    f_model  = c2.text_input("Model (ค้นหาบางส่วน)")
+    f_kanban = c1.text_input("Kanban No.")
+    f_model  = c2.text_input("Model")
     f_lot    = c3.text_input("Lot No.")
-    f_date   = c4.date_input(
-        "Scan Date",
-        value=None
-    )
+    f_wire   = c4.text_input("Wire Number")
+    f_date   = c5.date_input("Scan Date", value=None)
 
     load = st.button("📥 Load Data", type="primary")
 
@@ -309,50 +307,82 @@ elif mode == "Kanban Delivery Log":
         st.info("ℹ️ กรอกเงื่อนไข แล้วกด **Load Data**")
         st.stop()
 
-    # -----------------------------
-    # LOAD DELIVERY DATA (NO LIMIT)
-    # -----------------------------
-    query = supabase.table("kanban_delivery").select(
-        "kanban_no, model_name, lot_no, created_at, last_scanned_at"
+    # =====================================================
+    # 1) LOAD DELIVERY (EVENT TABLE)
+    # =====================================================
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select(
+            "kanban_no, model_name, lot_no, created_at, last_scanned_at"
+        )
+        .range(0, 50000)
+        .execute()
+        .data
     )
 
-    if f_kanban:
-        query = query.ilike("kanban_no", f"%{f_kanban.strip()}%")
-
-    if f_model:
-        query = query.ilike("model_name", f"%{f_model.strip()}%")
-
-    if f_lot:
-        query = query.eq("lot_no", f_lot.strip())
-
-    data = query.range(0, 50000).execute().data
-    df = safe_df(data)
-
-    if df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+    if del_df.empty:
+        st.warning("❌ ไม่พบข้อมูลการ Scan")
         st.stop()
 
     # -----------------------------
-    # NORMALIZE + TIMEZONE
+    # NORMALIZE DELIVERY
     # -----------------------------
-    df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
-    df["model_name"] = df["model_name"].astype(str).str.strip()
-    df["lot_no"] = (
-        df["lot_no"]
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+    del_df["model_name"] = del_df["model_name"].astype(str).str.strip()
+    del_df["lot_no"] = (
+        del_df["lot_no"]
         .astype(str)
         .str.replace(".0", "", regex=False)
         .str.strip()
     )
 
-    df["Delivered At (GMT+7)"] = (
-        df["last_scanned_at"]
-        .fillna(df["created_at"])
+    del_df["Delivered At (GMT+7)"] = (
+        del_df["last_scanned_at"]
+        .fillna(del_df["created_at"])
         .apply(to_gmt7)
     )
 
-    # -----------------------------
-    # FILTER BY DATE (CLIENT SIDE)
-    # -----------------------------
+    # =====================================================
+    # 2) LOAD LOT MASTER (FOR wire_number)
+    # =====================================================
+    lot_df = safe_df(
+        supabase.table("lot_master")
+        .select("kanban_no, wire_number")
+        .range(0, 50000)
+        .execute()
+        .data
+    )
+
+    if not lot_df.empty:
+        lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+        lot_df["wire_number"] = lot_df["wire_number"].astype(str).str.strip()
+    else:
+        lot_df = pd.DataFrame(columns=["kanban_no", "wire_number"])
+
+    # =====================================================
+    # 3) MERGE (LEFT JOIN)
+    # =====================================================
+    df = del_df.merge(
+        lot_df,
+        on="kanban_no",
+        how="left"
+    )
+
+    # =====================================================
+    # 4) APPLY FILTER
+    # =====================================================
+    if f_kanban:
+        df = df[df["kanban_no"].str.contains(f_kanban, case=False, na=False)]
+
+    if f_model:
+        df = df[df["model_name"].str.contains(f_model, case=False, na=False)]
+
+    if f_lot:
+        df = df[df["lot_no"].str.contains(f_lot, case=False, na=False)]
+
+    if f_wire:
+        df = df[df["wire_number"].str.contains(f_wire, case=False, na=False)]
+
     if f_date:
         df = df[
             df["Delivered At (GMT+7)"]
@@ -360,24 +390,25 @@ elif mode == "Kanban Delivery Log":
         ]
 
     if df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามวันที่ที่เลือก")
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
-    # -----------------------------
+    # =====================================================
     # KPI
-    # -----------------------------
+    # =====================================================
     total = df["kanban_no"].nunique()
 
     k1, = st.columns(1)
     k1.metric("📦 Total Delivered Kanban", total)
 
-    # -----------------------------
-    # DISPLAY TABLE
-    # -----------------------------
+    # =====================================================
+    # DISPLAY
+    # =====================================================
     st.dataframe(
         df[
             [
                 "kanban_no",
+                "wire_number",
                 "model_name",
                 "lot_no",
                 "Delivered At (GMT+7)"
@@ -386,7 +417,7 @@ elif mode == "Kanban Delivery Log":
         use_container_width=True
     )
 
-    st.caption(f"📊 แสดงทั้งหมด {len(df)} รายการ (kanban_delivery)")
+    st.caption(f"📊 แสดงทั้งหมด {len(df)} รายการ (kanban_delivery + lot_master)")
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -428,6 +459,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
