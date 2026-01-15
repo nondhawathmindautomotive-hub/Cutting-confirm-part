@@ -476,19 +476,19 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG (LOT MASTER BASED - FIXED)
+# 5) 📦 KANBAN DELIVERY LOG (STRICT LOT MODE)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # FILTER
+    # FILTER MODE (STRICT LOT)
     # -----------------------------
     c1, c2, c3 = st.columns(3)
-    f_kanban = c1.text_input("Kanban No.")
-    f_model = c2.text_input("Model")
-    f_lot = c3.text_input("Lot No.")
+    f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วนได้)")
+    f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
+    f_lot = c3.text_input("Lot No. (ต้องตรง 100%)")
 
     st.divider()
 
@@ -507,7 +507,7 @@ elif mode == "📦 Kanban Delivery Log":
         st.stop()
 
     # -----------------------------
-    # NORMALIZE
+    # NORMALIZE (CRITICAL)
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
@@ -523,12 +523,14 @@ elif mode == "📦 Kanban Delivery Log":
     # -----------------------------
     if f_kanban:
         lot_df = lot_df[
-            lot_df["kanban_no"].str.contains(f_kanban, case=False, na=False)
+            lot_df["kanban_no"]
+            .str.contains(f_kanban.strip(), case=False, na=False)
         ]
 
     if f_model:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(f_model, case=False, na=False)
+            lot_df["model_name"]
+            .str.contains(f_model.strip(), case=False, na=False)
         ]
 
     if f_lot:
@@ -536,18 +538,17 @@ elif mode == "📦 Kanban Delivery Log":
             lot_df["lot_no"] == f_lot.strip()
         ]
 
-
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
+        st.error("❌ ไม่พบข้อมูลตามเงื่อนไข (ตรวจสอบ Lot ให้ตรง 100%)")
         st.stop()
 
     # -----------------------------
-    # UNIQUE = 1 KANBAN
+    # UNIQUE = 1 KANBAN = 1 CIRCUIT
     # -----------------------------
     lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
 
     # -----------------------------
-    # LOAD DELIVERY (EVENT)
+    # LOAD DELIVERY (EVENT TABLE)
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
@@ -589,14 +590,14 @@ elif mode == "📦 Kanban Delivery Log":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # KPI (✔ ถูกต้อง 100%)
+    # KPI (TRUTH SOURCE = LOT MASTER)
     # -----------------------------
     total = len(df)
     sent = int(df["sent"].sum())
     remaining = total - sent
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total (lot_master)", total)
+    k1.metric("📦 Total (Lot Master)", total)
     k2.metric("✅ Sent", sent)
     k3.metric("⏳ Remaining", remaining)
 
@@ -611,4 +612,5 @@ elif mode == "📦 Kanban Delivery Log":
         ),
         use_container_width=True
     )
+
 
