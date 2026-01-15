@@ -246,23 +246,18 @@ elif mode == "Lot Kanban Summary":
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
 # =====================================================
 # =====================================================
-# 📦 KANBAN DELIVERY LOG (FINAL / TRACEABLE)
+# 📦 KANBAN DELIVERY LOG (MASTER + DELIVERY)
 # =====================================================
-elif mode == "Kanban Delivery Log":
+elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
-    # -----------------------------
-    # SEARCH (ANY FIELD)
-    # -----------------------------
-    c1, c2, c3 = st.columns(3)
-    c4, c5 = st.columns(2)
-
+    c1, c2, c3, c4, c5 = st.columns(5)
     f_kanban = c1.text_input("Kanban No.")
-    f_model = c2.text_input("Model")
-    f_lot = c3.text_input("Lot No.")
-    f_wire = c4.text_input("Wire Number")
-    f_date = c5.date_input("Scan Date", value=None)
+    f_model  = c2.text_input("Model")
+    f_lot    = c3.text_input("Lot No.")
+    f_wire   = c4.text_input("Wire Number")
+    f_date   = c5.date_input("Scan Date", value=None)
 
     st.divider()
 
@@ -271,9 +266,7 @@ elif mode == "Kanban Delivery Log":
     # -----------------------------
     lot_df = safe_df(
         supabase.table("lot_master")
-        .select(
-            "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
-        )
+        .select("kanban_no, model_name, lot_no, wire_number")
         .range(0, 50000)
         .execute()
         .data
@@ -283,65 +276,36 @@ elif mode == "Kanban Delivery Log":
         st.error("❌ ไม่พบข้อมูล lot_master")
         st.stop()
 
-    # -----------------------------
-    # NORMALIZE
-    # -----------------------------
+    # Normalize
     for c in ["kanban_no", "model_name", "lot_no", "wire_number"]:
         lot_df[c] = lot_df[c].astype(str).str.strip()
 
     lot_df["lot_no"] = lot_df["lot_no"].str.replace(".0", "", regex=False)
 
     # -----------------------------
-    # APPLY SEARCH (OR LOGIC)
-    # -----------------------------
-    if any([f_kanban, f_model, f_lot, f_wire]):
-        mask = False
-
-        if f_kanban:
-            mask |= lot_df["kanban_no"].str.contains(f_kanban, case=False, na=False)
-        if f_model:
-            mask |= lot_df["model_name"].str.contains(f_model, case=False, na=False)
-        if f_lot:
-            mask |= lot_df["lot_no"].str.contains(f_lot, case=False, na=False)
-        if f_wire:
-            mask |= lot_df["wire_number"].str.contains(f_wire, case=False, na=False)
-
-        lot_df = lot_df[mask]
-
-    if lot_df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
-        st.stop()
-
-    # -----------------------------
-    # LOAD DELIVERY
+    # LOAD DELIVERY (EVENT)
     # -----------------------------
     del_df = safe_df(
         supabase.table("kanban_delivery")
-        .select(
-            "kanban_no, created_at, last_scanned_at"
-        )
+        .select("kanban_no, last_scanned_at")
         .range(0, 50000)
         .execute()
-        .data
+        .data,
+        ["kanban_no", "last_scanned_at"]
     )
 
     if not del_df.empty:
         del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-
-        del_df["Delivered At"] = (
-            del_df["last_scanned_at"]
-            .fillna(del_df["created_at"])
-            .apply(to_gmt7)
-        )
-
+        del_df["Delivered At"] = del_df["last_scanned_at"].apply(to_gmt7)
         del_df["Status"] = "Sent"
-
         del_df = del_df[["kanban_no", "Delivered At", "Status"]]
     else:
-        del_df = pd.DataFrame(columns=["kanban_no", "Delivered At", "Status"])
+        del_df = pd.DataFrame(
+            columns=["kanban_no", "Delivered At", "Status"]
+        )
 
     # -----------------------------
-    # MERGE (TRACEABLE)
+    # MERGE (LEFT JOIN)
     # -----------------------------
     df = lot_df.merge(
         del_df,
@@ -350,18 +314,31 @@ elif mode == "Kanban Delivery Log":
     )
 
     df["Status"] = df["Status"].fillna("Not Sent")
-    df["Delivered At"] = df["Delivered At"].fillna("-")
 
     # -----------------------------
-    # FILTER BY DATE (OPTIONAL)
+    # FILTER (ANY FIELD)
     # -----------------------------
+    if f_kanban:
+        df = df[df["kanban_no"].str.contains(f_kanban, case=False)]
+
+    if f_model:
+        df = df[df["model_name"].str.contains(f_model, case=False)]
+
+    if f_lot:
+        df = df[df["lot_no"] == f_lot.strip()]
+
+    if f_wire:
+        df = df[df["wire_number"].str.contains(f_wire, case=False)]
+
     if f_date:
         df = df[
-            df["Delivered At"].str.contains(
-                f_date.strftime("%Y-%m-%d"),
-                na=False
-            )
+            pd.to_datetime(df["Delivered At"], errors="coerce")
+            .dt.date == f_date
         ]
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
+        st.stop()
 
     # -----------------------------
     # DISPLAY
@@ -374,16 +351,13 @@ elif mode == "Kanban Delivery Log":
                 "lot_no",
                 "wire_number",
                 "Status",
-                "Delivered At",
-                "joint_a",
-                "joint_b",
+                "Delivered At"
             ]
-        ].sort_values(["Status", "Delivered At"], ascending=[True, False]),
+        ].sort_values("Delivered At", ascending=False),
         use_container_width=True
     )
 
-    st.caption(f"📊 แสดงทั้งหมด {len(df)} รายการ (รวมยังไม่ Scan)")
-
+    st.caption(f"📊 แสดงผล {len(df)} รายการ (รวมที่ยังไม่ Scan)")
 
 
 # =====================================================
@@ -426,6 +400,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
