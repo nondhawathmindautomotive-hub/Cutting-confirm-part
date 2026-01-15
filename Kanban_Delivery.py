@@ -202,83 +202,53 @@ if mode == "✅ Scan Kanban":
 # =====================================================
 # 📊 2) LOT KANBAN SUMMARY (PRODUCTION TRUTH)
 # =====================================================
-elif mode == "📊 Lot Kanban Summary":
+elif mode == "📊 Lot Kanban Summary (Production)":
 
     st.header("📊 Lot Kanban Summary (Production)")
 
     c1, c2 = st.columns(2)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
-    f_model = c2.text_input("Model (optional)")
+    f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
 
-    st.divider()
-
-    # LOAD LOT MASTER
-    query = supabase.table("lot_master").select(
-        "kanban_no, model_name, lot_no"
-    )
+    # -----------------------------
+    # LOAD FROM VIEW (SOURCE OF TRUTH)
+    # -----------------------------
+    query = supabase.table("vw_lot_kanban_summary").select("*")
 
     if f_lot:
         query = query.eq("lot_no", f_lot.strip())
 
-    lot_df = safe_df(query.range(0, 50000).execute().data)
-
-    if lot_df.empty:
-        st.error("❌ ไม่พบข้อมูล lot_master")
-        st.stop()
-
-    # NORMALIZE
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
-    lot_df["lot_no"] = (
-        lot_df["lot_no"]
-        .astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.strip()
-    )
-
     if f_model:
-        lot_df = lot_df[
-            lot_df["model_name"].str.contains(
-                f_model.strip(), case=False, na=False
-            )
-        ]
+        query = query.ilike("model_name", f"%{f_model.strip()}%")
 
-    if lot_df.empty:
+    data = query.range(0, 50000).execute().data
+    df = safe_df(data)
+
+    if df.empty:
         st.warning("ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
-    # 📄 CSV RECORD
-    total_record = len(lot_df)
+    # -----------------------------
+    # KPI
+    # -----------------------------
+    total = int(df["total_kanban"].sum())
+    sent = int(df["sent_kanban"].sum())
+    remaining = int(df["remaining_kanban"].sum())
 
-    # ⚙️ CIRCUIT
-    circuit_df = lot_df.drop_duplicates(subset=["kanban_no"])
-    total_circuit = len(circuit_df)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total Kanban", total)
+    k2.metric("✅ Sent", sent)
+    k3.metric("⏳ Remaining", remaining)
 
-    # LOAD DELIVERY
-    del_df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .range(0, 50000)
-        .execute()
-        .data,
-        ["kanban_no"]
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
+    st.dataframe(
+        df.sort_values(["lot_no", "model_name"]),
+        use_container_width=True
     )
 
-    if not del_df.empty:
-        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
-
-    sent = circuit_df[
-        circuit_df["kanban_no"].isin(del_df["kanban_no"])
-    ]["kanban_no"].nunique()
-
-    remaining = total_circuit - sent
-
-    # KPI
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📄 Total Record (CSV)", total_record)
-    k2.metric("⚙️ Total Circuit", total_circuit)
-    k3.metric("✅ Sent", sent)
-    k4.metric("⏳ Remaining", remaining)
+    st.caption(f"📊 แสดงผล {len(df)} รายการ (จากฐานข้อมูลจริง)")
 
 # =====================================================
 # 📦 3) KANBAN DELIVERY LOG
@@ -429,6 +399,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
