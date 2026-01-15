@@ -476,42 +476,41 @@ elif mode == "🔐📤 Upload Lot Master":
         st.success(f"✅ Upload สำเร็จ {len(df)} รายการ")
 
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG (FULL DATA / NO 1000 LIMIT)
+# 5) 📦 KANBAN DELIVERY LOG (LOT MASTER = SOURCE OF TRUTH)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # SEARCH (USER INPUT)
+    # SEARCH
     # -----------------------------
     c1, c2, c3 = st.columns(3)
     f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วนได้)")
     f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
-    f_lot = c3.text_input("Lot No. (ต้องตรง 100%)")
+    f_lot = c3.text_input("Lot No.")
 
     st.divider()
 
     # -----------------------------
-    # LOAD LOT MASTER (BASE TABLE)
-    # 🔥 FIX: USE range() TO AVOID 1000 LIMIT
+    # LOAD LOT MASTER (🔥 NO 1000 LIMIT)
     # -----------------------------
-    query_lot = supabase.table("lot_master").select(
-        "kanban_no, model_name, lot_no"
+    lot_raw = (
+        supabase.table("lot_master")
+        .select("kanban_no, model_name, lot_no")
+        .range(0, 50000)
+        .execute()
+        .data
     )
 
-    if f_lot:
-        query_lot = query_lot.eq("lot_no", f_lot.strip())
-
-    lot_raw = query_lot.range(0, 50000).execute().data
     lot_df = safe_df(lot_raw)
 
     if lot_df.empty:
-        st.error("❌ ไม่พบข้อมูล lot_master (ตรวจสอบ Lot ให้ตรง 100%)")
+        st.error("❌ ไม่พบข้อมูล lot_master")
         st.stop()
 
     # -----------------------------
-    # NORMALIZE DATA (CRITICAL)
+    # NORMALIZE DATA (🔥 CRITICAL)
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
@@ -523,18 +522,27 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     # -----------------------------
-    # APPLY SEARCH FILTER (SAFE)
+    # APPLY FILTER (SAFE / USER FRIENDLY)
     # -----------------------------
+    if f_lot:
+        lot_df = lot_df[
+            lot_df["lot_no"].str.contains(
+                f_lot.strip(), case=False, na=False
+            )
+        ]
+
     if f_kanban:
         lot_df = lot_df[
-            lot_df["kanban_no"]
-            .str.contains(f_kanban.strip(), case=False, na=False)
+            lot_df["kanban_no"].str.contains(
+                f_kanban.strip(), case=False, na=False
+            )
         ]
 
     if f_model:
         lot_df = lot_df[
-            lot_df["model_name"]
-            .str.contains(f_model.strip(), case=False, na=False)
+            lot_df["model_name"].str.contains(
+                f_model.strip(), case=False, na=False
+            )
         ]
 
     if lot_df.empty:
@@ -547,8 +555,7 @@ elif mode == "📦 Kanban Delivery Log":
     lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
 
     # -----------------------------
-    # LOAD DELIVERY TABLE (EVENT)
-    # 🔥 FIX: NO LIMIT
+    # LOAD DELIVERY TABLE (EVENT LOG)
     # -----------------------------
     del_raw = (
         supabase.table("kanban_delivery")
@@ -597,7 +604,7 @@ elif mode == "📦 Kanban Delivery Log":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # KPI SUMMARY (TRUTH SOURCE)
+    # KPI SUMMARY (✅ TRUTH)
     # -----------------------------
     total = len(df)
     sent = int(df["sent"].sum())
