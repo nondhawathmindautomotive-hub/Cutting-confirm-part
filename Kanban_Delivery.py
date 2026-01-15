@@ -285,50 +285,146 @@ elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
-    df = safe_df(
+    # =============================
+    # SEARCH
+    # =============================
+    c1, c2, c3 = st.columns(3)
+    f_kanban = c1.text_input("Kanban No.")
+    f_model  = c2.text_input("Model")
+    f_lot    = c3.text_input("Lot No.")
+
+    st.divider()
+
+    # =============================
+    # LOAD DELIVERY
+    # =============================
+    del_df = safe_df(
         supabase.table("kanban_delivery")
-        .select("kanban_no, model_name, lot_no, created_at, last_scanned_at")
+        .select(
+            "kanban_no, model_name, lot_no, created_at, last_scanned_at"
+        )
         .range(0, 50000)
         .execute()
         .data
     )
 
-    if df.empty:
-        st.warning("ยังไม่มีการ Scan")
+    if del_df.empty:
+        st.warning("❌ ยังไม่มีข้อมูลการ Scan")
         st.stop()
 
-    df["Delivered At (GMT+7)"] = (
-        df["last_scanned_at"]
-        .fillna(df["created_at"])
+    # =============================
+    # NORMALIZE
+    # =============================
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+    del_df["model_name"] = del_df["model_name"].astype(str).str.strip()
+    del_df["lot_no"] = (
+        del_df["lot_no"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+    )
+
+    del_df["Delivered At (GMT+7)"] = (
+        del_df["last_scanned_at"]
+        .fillna(del_df["created_at"])
         .apply(to_gmt7)
     )
 
-    st.dataframe(df, use_container_width=True)
+    # =============================
+    # APPLY FILTER
+    # =============================
+    if f_kanban:
+        del_df = del_df[
+            del_df["kanban_no"].str.contains(f_kanban, case=False, na=False)
+        ]
+
+    if f_model:
+        del_df = del_df[
+            del_df["model_name"].str.contains(f_model, case=False, na=False)
+        ]
+
+    if f_lot:
+        del_df = del_df[
+            del_df["lot_no"].str.contains(f_lot, case=False, na=False)
+        ]
+
+    if del_df.empty:
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
+        st.stop()
+
+    # =============================
+    # KPI
+    # =============================
+    total = len(del_df)
+
+    k1, = st.columns(1)
+    k1.metric("📦 Total Delivered Kanban", total)
+
+    # =============================
+    # DISPLAY
+    # =============================
+    st.dataframe(
+        del_df[
+            [
+                "kanban_no",
+                "model_name",
+                "lot_no",
+                "Delivered At (GMT+7)"
+            ]
+        ].sort_values("Delivered At (GMT+7)", ascending=False),
+        use_container_width=True
+    )
+
+    st.caption(f"📊 แสดงทั้งหมด {total} รายการ")
 
 # =====================================================
 # 🔍 4) TRACKING SEARCH (PLACEHOLDER)
 # =====================================================
 elif mode == "🔍 Tracking Search":
-    st.info("🔍 ใช้ Tracking Logic เดิมของคุณได้")
 
-# =====================================================
-# 🔐📤 5) UPLOAD LOT MASTER
-# =====================================================
-elif mode == "🔐📤 Upload Lot Master":
+    st.header("🔍 Tracking Search")
 
-    if st.text_input("Planner Password", type="password") != "planner":
-        st.stop()
+    c1, c2, c3 = st.columns(3)
+    kanban = c1.text_input("Kanban No.")
+    model  = c2.text_input("Model")
+    lot    = c3.text_input("Lot No.")
 
-    file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
-    if not file:
-        st.stop()
+    query = supabase.table("lot_master").select(
+        "kanban_no, model_name, lot_no"
+    )
 
-    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+    if kanban:
+        query = query.ilike("kanban_no", f"%{kanban}%")
+    if model:
+        query = query.ilike("model_name", f"%{model}%")
+    if lot:
+        query = query.ilike("lot_no", f"%{lot}%")
 
-    st.dataframe(df.head(), use_container_width=True)
+    lot_df = safe_df(query.range(0, 50000).execute().data)
 
-    if st.button("🚀 Upload"):
-        supabase.table("lot_master").insert(
-            df.fillna("").astype(str).to_dict(orient="records")
-        ).execute()
-        st.success(f"✅ Upload สำเร็จ {len(df)} รายการ")
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select("kanban_no, created_at, last_scanned_at")
+        .range(0, 50000)
+        .execute().data
+    )
+
+    if not del_df.empty:
+        del_df["Delivered At (GMT+7)"] = (
+            del_df["last_scanned_at"]
+            .fillna(del_df["created_at"])
+            .apply(to_gmt7)
+        )
+
+    df = lot_df.merge(
+        del_df[["kanban_no", "Delivered At (GMT+7)"]],
+        on="kanban_no",
+        how="left"
+    )
+
+    df["Status"] = df["Delivered At (GMT+7)"].apply(
+        lambda x: "Sent" if pd.notna(x) else "Remaining"
+    )
+
+    st.dataframe(df, use_container_width=True)
+
