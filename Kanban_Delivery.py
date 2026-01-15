@@ -190,9 +190,9 @@ if mode == "Scan Kanban":
 # =====================================================
 # 📊 LOT KANBAN SUMMARY (FINAL / PRODUCTION SAFE)
 # =====================================================
-elif mode == "📊 Lot Kanban Summary":
+elif mode == "Lot Kanban Summary":
 
-    st.header("📊 Lot Kanban Summary")
+    st.header("Lot Kanban Summary")
 
     # -----------------------------
     # FILTER
@@ -345,4 +345,5 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
