@@ -284,23 +284,65 @@ elif mode == "Lot Kanban Summary":
 
 
 # =====================================================
-# 3) KANBAN DELIVERY LOG
+# 📦 KANBAN DELIVERY LOG (FINAL / SEARCH ENABLED)
 # =====================================================
-elif mode == "Kanban Delivery Log":
+elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
-    df = safe_df(
-        supabase.table("kanban_delivery")
-        .select("kanban_no, model_name, lot_no, created_at, last_scanned_at")
-        .range(0, 50000)
-        .execute()
-        .data
+    # -----------------------------
+    # SEARCH CONDITION
+    # -----------------------------
+    c1, c2, c3, c4 = st.columns(4)
+
+    f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วน)")
+    f_model  = c2.text_input("Model (ค้นหาบางส่วน)")
+    f_lot    = c3.text_input("Lot No.")
+    f_date   = c4.date_input(
+        "Scan Date",
+        value=None
     )
 
-    if df.empty:
-        st.warning("ยังไม่มีข้อมูล")
+    load = st.button("📥 Load Data", type="primary")
+
+    if not load:
+        st.info("ℹ️ กรอกเงื่อนไข แล้วกด **Load Data**")
         st.stop()
+
+    # -----------------------------
+    # LOAD DELIVERY DATA (NO LIMIT)
+    # -----------------------------
+    query = supabase.table("kanban_delivery").select(
+        "kanban_no, model_name, lot_no, created_at, last_scanned_at"
+    )
+
+    if f_kanban:
+        query = query.ilike("kanban_no", f"%{f_kanban.strip()}%")
+
+    if f_model:
+        query = query.ilike("model_name", f"%{f_model.strip()}%")
+
+    if f_lot:
+        query = query.eq("lot_no", f_lot.strip())
+
+    data = query.range(0, 50000).execute().data
+    df = safe_df(data)
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+        st.stop()
+
+    # -----------------------------
+    # NORMALIZE + TIMEZONE
+    # -----------------------------
+    df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
+    df["model_name"] = df["model_name"].astype(str).str.strip()
+    df["lot_no"] = (
+        df["lot_no"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+    )
 
     df["Delivered At (GMT+7)"] = (
         df["last_scanned_at"]
@@ -308,10 +350,43 @@ elif mode == "Kanban Delivery Log":
         .apply(to_gmt7)
     )
 
+    # -----------------------------
+    # FILTER BY DATE (CLIENT SIDE)
+    # -----------------------------
+    if f_date:
+        df = df[
+            df["Delivered At (GMT+7)"]
+            .str.startswith(f_date.strftime("%Y-%m-%d"))
+        ]
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามวันที่ที่เลือก")
+        st.stop()
+
+    # -----------------------------
+    # KPI
+    # -----------------------------
+    total = df["kanban_no"].nunique()
+
+    k1, = st.columns(1)
+    k1.metric("📦 Total Delivered Kanban", total)
+
+    # -----------------------------
+    # DISPLAY TABLE
+    # -----------------------------
     st.dataframe(
-        df.sort_values("Delivered At (GMT+7)", ascending=False),
+        df[
+            [
+                "kanban_no",
+                "model_name",
+                "lot_no",
+                "Delivered At (GMT+7)"
+            ]
+        ].sort_values("Delivered At (GMT+7)", ascending=False),
         use_container_width=True
     )
+
+    st.caption(f"📊 แสดงทั้งหมด {len(df)} รายการ (kanban_delivery)")
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -353,6 +428,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
