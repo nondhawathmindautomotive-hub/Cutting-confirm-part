@@ -202,26 +202,30 @@ if mode == "✅ Scan Kanban":
 # =====================================================
 # 📊 2) LOT KANBAN SUMMARY (PRODUCTION TRUTH)
 # =====================================================
+# =====================================================
+# 📊 LOT KANBAN SUMMARY (PRODUCTION - CSV + CIRCUIT)
+# =====================================================
 elif mode == "📊 Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary (Production)")
 
-    # =====================================================
+    # -----------------------------
     # FILTER
-    # =====================================================
+    # -----------------------------
     c1, c2 = st.columns(2)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model (optional)")
 
     st.divider()
 
-    # =====================================================
-    # 1) 📄 TOTAL RECORD (CSV LEVEL) → lot_master (RAW)
-    # =====================================================
-    lm_query = supabase.table("lot_master").select(
+    # =============================
+    # LOAD LOT MASTER (RAW CSV LEVEL)
+    # =============================
+    query = supabase.table("lot_master").select(
         "kanban_no, model_name, lot_no"
     )
 
+    # ❌ ห้ามใช้ eq ตรง ๆ
     if f_lot:
         lot_key = (
             f_lot.strip()
@@ -229,54 +233,114 @@ elif mode == "📊 Lot Kanban Summary":
             .replace("\r", "")
             .replace("\n", "")
         )
+        query = query.ilike("lot_no", f"%{lot_key}%")
 
-    lm_query = lm_query.ilike("lot_no", f"%{lot_key}%")
-
-
-    if f_model:
-        lm_query = lm_query.ilike("model_name", f"%{f_model.strip()}%")
-
-    # 🔥 สำคัญ: ต้องใช้ range เพื่อไม่ติด limit 1000
     lot_df = safe_df(
-        lm_query.range(0, 50000).execute().data
+        query.range(0, 50000).execute().data
     )
 
     if lot_df.empty:
-        st.warning("❌ ไม่พบข้อมูล lot_master")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
         st.stop()
 
-    # Normalize
-    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+    # =============================
+    # 🔥 NORMALIZE (CRITICAL ZONE)
+    # =============================
+    lot_df["kanban_no"] = (
+        lot_df["kanban_no"]
+        .astype(str)
+        .str.strip()
+    )
+
+    lot_df["model_name"] = (
+        lot_df["model_name"]
+        .astype(str)
+        .str.strip()
+    )
+
     lot_df["lot_no"] = (
         lot_df["lot_no"]
         .astype(str)
         .str.replace(r"\.0$", "", regex=True)
+        .str.replace(r"\s+", "", regex=True)   # 🔥 KEY FIX
         .str.strip()
     )
-    lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
-
-    total_record = len(lot_df)   # 👈 CSV จริง เช่น 1365
-
-    # =====================================================
-    # 2) ⚙️ SUMMARY TABLE → lot_kanban_summary (PRODUCTION)
-    # =====================================================
-    sum_query = supabase.table("lot_kanban_summary").select(
-        "lot_no, model_name, total_circuit, sent_circuit, remaining_circuit, last_updated_at"
-    )
-
-    if f_lot:
-        sum_query = sum_query.eq("lot_no", f_lot.strip())
 
     if f_model:
-        sum_query = sum_query.ilike("model_name", f"%{f_model.strip()}%")
+        lot_df = lot_df[
+            lot_df["model_name"]
+            .str.contains(f_model.strip(), case=False, na=False)
+        ]
 
-    sum_df = safe_df(
-        sum_query.range(0, 50000).execute().data
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูลหลังกรอง Model")
+        st.stop()
+
+    # =============================
+    # 📄 TOTAL RECORD (CSV LEVEL)
+    # =============================
+    total_record = len(lot_df)   # ← ต้องได้ 1365
+
+    # =============================
+    # ⚙️ TOTAL CIRCUIT (KANBAN UNIQUE)
+    # =============================
+    circuit_df = lot_df.drop_duplicates(subset=["kanban_no"])
+    total_circuit = len(circuit_df)
+
+    # =============================
+    # LOAD DELIVERY (TRACKING LOGIC เดิม)
+    # =============================
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select("kanban_no")
+        .range(0, 50000)
+        .execute().data,
+        ["kanban_no"]
     )
 
-    if sum_df.empty:
-        st.warning("❌ ไม่พบข้อมูลใน lot_kanban_summary")
-        st.stop()
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+
+    sent = circuit_df[
+        circuit_df["kanban_no"].isin(del_df["kanban_no"])
+    ]["kanban_no"].nunique()
+
+    remaining = total_circuit - sent
+
+    # =============================
+    # KPI DISPLAY (ตามที่คุณต้องการ)
+    # =============================
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("📄 Total Record (CSV)", total_record)
+    k2.metric("⚙️ Total Circuit", total_circuit)
+    k3.metric("✅ Sent", sent)
+    k4.metric("⏳ Remaining", remaining)
+
+    st.divider()
+
+    # =============================
+    # DETAIL TABLE (AUDITABLE)
+    # =============================
+    st.subheader("📋 Circuit Detail (Audit)")
+
+    sent_set = set(del_df["kanban_no"]) if not del_df.empty else set()
+
+    circuit_df["Status"] = circuit_df["kanban_no"].apply(
+        lambda x: "Sent" if x in sent_set else "Remaining"
+    )
+
+    st.dataframe(
+        circuit_df.sort_values(
+            by=["Status", "kanban_no"],
+            ascending=[True, True]
+        ),
+        use_container_width=True
+    )
+
+    st.caption(
+        f"📊 CSV Record = {total_record} | "
+        f"Production Circuit = {total_circuit}"
+    )
 
     # =====================================================
     # 3) KPI (SOURCE OF TRUTH)
@@ -477,6 +541,7 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
 
