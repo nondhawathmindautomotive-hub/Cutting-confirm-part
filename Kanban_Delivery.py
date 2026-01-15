@@ -428,7 +428,7 @@ elif mode == "🔍 Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 4) UPLOAD LOT MASTER (SAFE JSON + NO ERROR)
+# 4) 🔐📤 Upload Lot Master (FIXED & CLOSED)
 # =====================================================
 elif mode == "🔐📤 Upload Lot Master":
 
@@ -437,44 +437,44 @@ elif mode == "🔐📤 Upload Lot Master":
         st.stop()
 
     file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
+    if not file:
+        st.info("กรุณาอัปโหลดไฟล์")
+        st.stop()
 
-    if file:
-        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
-        required = [
-            "lot_no",
-            "kanban_no",
-            "model_name",
-            "wire_number",
-            "subpackage_number",
-            "wire_harness_code",
-            "joint_a",
-            "joint_b",
-        ]
+    required = [
+        "lot_no",
+        "kanban_no",
+        "model_name",
+        "wire_number",
+        "subpackage_number",
+        "wire_harness_code",
+        "joint_a",
+        "joint_b",
+    ]
 
-        # -----------------------------
-        # CHECK COLUMN
-        # -----------------------------
-        missing = set(required) - set(df.columns)
-        if missing:
-            st.error(f"❌ ขาด column: {missing}")
-            st.stop()
+    missing = set(required) - set(df.columns)
+    if missing:
+        st.error(f"❌ ขาด column: {missing}")
+        st.stop()
 
-                # -----------------------------
-        # CLEAN DATA
-        # -----------------------------
-        df = df[required].copy()
+    # CLEAN DATA
+    df = df[required].copy().fillna("")
+    for c in df.columns:
+        df[c] = df[c].astype(str).str.strip()
 
-        df = df.fillna("")
+    df["lot_no"] = df["lot_no"].str.replace(r"\.0$", "", regex=True)
 
-        for c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
+    st.dataframe(df.head(), use_container_width=True)
 
-        df["lot_no"] = (
-            df["lot_no"]
-            .str.replace(r"\.0$", "", regex=True)
-            .str.strip()
-        )
+    if st.button("🚀 Upload เข้า Lot Master"):
+        supabase.table("lot_master").insert(
+            df.to_dict(orient="records")
+        ).execute()
+
+        st.success(f"✅ Upload สำเร็จ {len(df)} รายการ")
+
 # =====================================================
 # 5) 📦 KANBAN DELIVERY LOG (FULL DATA / NO 1000 LIMIT)
 # =====================================================
@@ -621,6 +621,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+
 
 
 
