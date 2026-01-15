@@ -38,7 +38,8 @@ mode = st.sidebar.radio(
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
         "🔍 Tracking Search",
-        "🔐📤 Upload Lot Master"
+        "🔐📤 Upload Lot Master",
+        "📦 Kanban Delivery Log",
     ]
 )
 
@@ -62,7 +63,7 @@ def norm(v):
     return str(v).strip() if v is not None else ""
 
 # =====================================================
-# 1) SCAN KANBAN (AUTO + STRICT JOINT)
+# 1) SCAN KANBAN (JOINT = 1 SCAN = ALL SENT)
 # =====================================================
 if mode == "✅ Scan Kanban":
 
@@ -73,6 +74,11 @@ if mode == "✅ Scan Kanban":
         if not kanban:
             return
 
+        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
+
+        # -----------------------------
+        # LOAD BASE KANBAN
+        # -----------------------------
         base = (
             supabase.table("lot_master")
             .select("kanban_no, model_name, lot_no, joint_a, joint_b")
@@ -83,7 +89,7 @@ if mode == "✅ Scan Kanban":
         )
 
         if not base:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban")
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน lot_master")
             st.session_state.scan = ""
             return
 
@@ -93,12 +99,10 @@ if mode == "✅ Scan Kanban":
         joint_a = norm(row.get("joint_a"))
         joint_b = norm(row.get("joint_b"))
 
-        is_joint = bool(joint_a or joint_b)
-
-        # =========================
-        # JOINT CIRCUIT
-        # =========================
-        if is_joint:
+        # -----------------------------
+        # FIND JOINT GROUP
+        # -----------------------------
+        if joint_a or joint_b:
             rows = (
                 supabase.table("lot_master")
                 .select("kanban_no, joint_a, joint_b")
@@ -116,63 +120,53 @@ if mode == "✅ Scan Kanban":
                     joint_list.append(norm(r["kanban_no"]))
 
             joint_list = list(set(joint_list))
+        else:
+            joint_list = [kanban]
 
-            sent = (
-                supabase.table("kanban_delivery")
-                .select("kanban_no")
-                .in_("kanban_no", joint_list)
-                .execute()
-                .data
-            )
-            sent_set = {norm(x["kanban_no"]) for x in sent}
-
-            to_insert = [
-                {"kanban_no": k, "model_name": model, "lot_no": lot}
-                for k in joint_list if k not in sent_set
-            ]
-
-            if to_insert:
-                supabase.table("kanban_delivery").insert(to_insert).execute()
-                st.session_state.msg = (
-                    "success",
-                    f"✅ Joint COMPLETE {len(to_insert)} วงจร"
-                )
-            else:
-                st.session_state.msg = ("warning", "⚠️ Joint นี้ถูกส่งครบแล้ว")
-
-            st.session_state.scan = ""
-            return
-
-        # =========================
-        # NORMAL CIRCUIT
-        # =========================
+        # -----------------------------
+        # CHECK EXISTING DELIVERY
+        # -----------------------------
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
-            .eq("kanban_no", kanban)
+            .in_("kanban_no", joint_list)
             .execute()
             .data
         )
+        exist_set = {norm(x["kanban_no"]) for x in exist}
 
-        if exist:
-            st.session_state.msg = ("warning", "⚠️ Kanban นี้ถูกส่งแล้ว")
-            st.session_state.scan = ""
-            return
+        # -----------------------------
+        # INSERT MISSING RECORDS
+        # -----------------------------
+        to_insert = [
+            {
+                "kanban_no": k,
+                "model_name": model,
+                "lot_no": lot,
+                "last_scanned_at": now_ts
+            }
+            for k in joint_list if k not in exist_set
+        ]
 
-        supabase.table("kanban_delivery").insert({
-            "kanban_no": kanban,
-            "model_name": model,
-            "lot_no": lot
-        }).execute()
+        if to_insert:
+            supabase.table("kanban_delivery").insert(to_insert).execute()
 
+        # -----------------------------
+        # UPDATE TIME FOR ALL JOINT
+        # -----------------------------
+        supabase.table("kanban_delivery").update(
+            {"last_scanned_at": now_ts}
+        ).in_("kanban_no", joint_list).execute()
+
+        # -----------------------------
+        # RESULT MESSAGE
+        # -----------------------------
         st.session_state.msg = (
             "success",
-            f"""
-        ✅ **ส่ง Kanban สำเร็จ**
-        - Kanban : `{kanban}`
-        - Model  : `{model}`
-        - Lot    : `{lot}`
-        """
+            f"""✅ Scan สำเร็จ (Joint Logic)
+- Model : {model}
+- Lot   : {lot}
+- Qty   : {len(joint_list)}"""
         )
 
         st.session_state.scan = ""
@@ -187,6 +181,8 @@ if mode == "✅ Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+
+
 # =====================================================
 # 2) MODEL KANBAN STATUS (CSV-PROOF / COUNT CORRECT)
 # =====================================================
@@ -359,18 +355,45 @@ elif mode == "🔍 Tracking Search":
 
     lot_df = safe_df(query.execute().data)
 
+# =============================
+# LOAD DELIVERY TIME
+# =============================
     del_df = safe_df(
         supabase.table("kanban_delivery")
-        .select("kanban_no, created_at")
+        .select("kanban_no, created_at, last_scanned_at")
         .execute()
         .data,
-        ["kanban_no", "created_at"]
+        ["kanban_no", "created_at", "last_scanned_at"]
     )
 
-    del_df["Delivered at (GMT+7)"] = del_df["created_at"].apply(to_gmt7)
-    del_df = del_df.drop(columns=["created_at"])
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
 
-    df = lot_df.merge(del_df, on="kanban_no", how="left")
+        # ใช้ last_scanned_at ก่อน ถ้าไม่มี ค่อยใช้ created_at
+        del_df["Delivered at (GMT+7)"] = (
+            del_df["last_scanned_at"]
+            .fillna(del_df["created_at"])
+            .apply(to_gmt7)
+        )
+
+        del_df = del_df.drop(columns=["created_at", "last_scanned_at"])
+    else:
+        del_df = pd.DataFrame(
+            columns=["kanban_no", "Delivered at (GMT+7)"]
+        )
+
+
+# =============================
+# MERGE
+# =============================
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
@@ -421,63 +444,152 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.replace(r"\.0$", "", regex=True)
             .str.strip()
         )
+# =====================================================
+# 📦 KANBAN DELIVERY LOG (LOT MASTER BASED - FIXED)
+# =====================================================
+elif mode == "📦 Kanban Delivery Log":
 
-        # =================================================
-        # 🔥 DEDUPLICATE kanban_no (CRITICAL FIX)
-        # =================================================
-        before = len(df)
+    st.header("📦 Kanban Delivery Log")
 
-        df = (
-            df
-            .sort_values(by=["kanban_no"])
-            .drop_duplicates(
-                subset=["kanban_no"],
-                keep="first"      # ← ถ้าล็อตใหม่อยู่ล่าง เปลี่ยนเป็น "last"
-            )
-            .reset_index(drop=True)
+    # -----------------------------
+    # FILTER
+    # -----------------------------
+    c1, c2, c3 = st.columns(3)
+    f_model = c1.text_input("Model")
+    f_lot = c2.text_input("Lot")
+    view_mode = c3.selectbox(
+        "View",
+        ["ทั้งหมด", "ส่งแล้ว", "ยังไม่ส่ง"]
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # LOAD LOT MASTER (BASE)
+    # -----------------------------
+    lot_df = safe_df(
+        supabase.table("lot_master")
+        .select("kanban_no, model_name, lot_no")
+        .execute()
+        .data
+    )
+
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูล lot_master")
+        st.stop()
+
+    # -----------------------------
+    # NORMALIZE (🔥 CRITICAL)
+    # -----------------------------
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+
+    lot_df["lot_no"] = (
+        lot_df["lot_no"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
+    )
+
+    lot_df["model_name"] = (
+        lot_df["model_name"]
+        .astype(str)
+        .str.strip()
+    )
+
+    # -----------------------------
+    # APPLY FILTER (🔥 FIX)
+    # -----------------------------
+    if f_lot:
+        lot_df = lot_df[lot_df["lot_no"] == f_lot.strip()]
+
+    if f_model:
+        lot_df = lot_df[
+            lot_df["model_name"]
+            .str.contains(f_model.strip(), case=False, na=False)
+        ]
+
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูลตาม Lot / Model")
+        st.stop()
+
+    # -----------------------------
+    # UNIQUE = 1 KANBAN = 1 CIRCUIT
+    # -----------------------------
+    lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
+
+    # -----------------------------
+    # LOAD DELIVERY (SENT = HAS TIMESTAMP)
+    # -----------------------------
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select("kanban_no, created_at, last_scanned_at")
+        .execute()
+        .data,
+        ["kanban_no", "created_at", "last_scanned_at"]
+    )
+
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+
+        del_df["sent"] = (
+            del_df["created_at"].notna()
+            | del_df["last_scanned_at"].notna()
+        ).astype(int)
+
+        del_df["Delivered At (GMT+7)"] = (
+            del_df["last_scanned_at"]
+            .fillna(del_df["created_at"])
+            .apply(to_gmt7)
         )
 
-        after = len(df)
+        del_df = del_df[["kanban_no", "sent", "Delivered At (GMT+7)"]]
+    else:
+        del_df = pd.DataFrame(
+            columns=["kanban_no", "sent", "Delivered At (GMT+7)"]
+        )
 
-        st.info(f"🧹 ลบ kanban_no ซ้ำ {before - after} รายการ")
+    # -----------------------------
+    # MERGE
+    # -----------------------------
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
 
-        # -----------------------------
-        # PREVIEW
-        # -----------------------------
-        st.subheader("📄 Preview (10 rows)")
-        st.dataframe(df.head(10), use_container_width=True)
+    df["sent"] = df["sent"].fillna(0).astype(int)
 
-        # -----------------------------
-        # UPLOAD
-        # -----------------------------
-        if st.button("🚀 Upload to Supabase"):
-            try:
-                supabase.table("lot_master").upsert(
-                    df.to_dict("records"),
-                    on_conflict="kanban_no"
-                ).execute()
+    # -----------------------------
+    # SUMMARY (✔ CORRECT)
+    # -----------------------------
+    total = len(df)
+    sent = df["sent"].sum()
+    remaining = total - sent
 
-                st.success(f"✅ Upload สำเร็จ {len(df)} records")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("📦 Total (lot_master)", total)
+    c2.metric("✅ Sent (timestamp)", sent)
+    c3.metric("⏳ Remaining", remaining)
 
-            except Exception as e:
-                st.error("❌ Upload ไม่สำเร็จ")
-                st.exception(e)
+    # -----------------------------
+    # VIEW MODE
+    # -----------------------------
+    if view_mode == "ส่งแล้ว":
+        df = df[df["sent"] == 1]
+    elif view_mode == "ยังไม่ส่ง":
+        df = df[df["sent"] == 0]
 
-                st.success(f"✅ Upload สำเร็จ {len(df)} records")
-
-            except Exception as e:
-                st.error("❌ Upload ไม่สำเร็จ")
-                st.exception(e)
-
-
-
-
-
-
-
-
-
-
+    # -----------------------------
+    # DISPLAY
+    # -----------------------------
+    st.dataframe(
+        df.sort_values(
+            by="Delivered At (GMT+7)",
+            ascending=False,
+            na_position="last"
+        ),
+        use_container_width=True
+    )
 
 
 
