@@ -188,7 +188,7 @@ if mode == "Scan Kanban":
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
 # =====================================================
-# 📊 LOT KANBAN SUMMARY (FINAL + LOAD BUTTON)
+# 📊 LOT KANBAN SUMMARY (FINAL - RPC / NO LIMIT)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
@@ -211,46 +211,19 @@ elif mode == "Lot Kanban Summary":
         st.warning("❌ ต้องระบุ Lot No.")
         st.stop()
 
-    # -----------------------------
-    # LOAD FROM VIEW (SOURCE OF TRUTH)
-    # -----------------------------
-    query = (
-        supabase.table("vw_lot_kanban_summary")
-        .select(
-            "lot_no, model_name, total_kanban, sent_kanban, remaining_kanban"
-        )
-        .eq("lot_no", f_lot.strip())
-    )
+    # =====================================================
+    # 1) LOAD SUMMARY BY RPC (SOURCE OF TRUTH)
+    # =====================================================
+    result = supabase.rpc(
+        "get_lot_kanban_summary",
+        {"p_lot": f_lot.strip()}
+    ).execute().data
 
-    if f_model:
-        query = query.ilike("model_name", f"%{f_model.strip()}%")
-
-    data = query.range(0, 50000).execute().data
-    df = safe_df(data)
-
-    if df.empty:
+    if not result:
         st.error("❌ ไม่พบข้อมูล Lot นี้")
         st.stop()
 
-    # -----------------------------
-    # FORCE TYPE
-    # -----------------------------
-    for c in ["total_kanban", "sent_kanban", "remaining_kanban"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
-
-    # -----------------------------
-    # AGGREGATE (1 LOT = 1 TRUTH)
-    # -----------------------------
-    summary = (
-        df.groupby("lot_no", as_index=False)
-        .agg(
-            total_kanban=("total_kanban", "sum"),
-            sent_kanban=("sent_kanban", "sum"),
-            remaining_kanban=("remaining_kanban", "sum"),
-        )
-    )
-
-    row = summary.iloc[0]
+    row = result[0]
 
     total = int(row["total_kanban"])
     sent = int(row["sent_kanban"])
@@ -266,8 +239,35 @@ elif mode == "Lot Kanban Summary":
 
     st.divider()
 
+    # =====================================================
+    # 2) LOAD DETAIL (OPTIONAL / DISPLAY ONLY)
+    # =====================================================
+    query = (
+        supabase.table("vw_lot_kanban_summary")
+        .select(
+            "lot_no, model_name, total_kanban, sent_kanban, remaining_kanban"
+        )
+        .eq("lot_no", f_lot.strip())
+    )
+
+    if f_model:
+        query = query.ilike("model_name", f"%{f_model.strip()}%")
+
+    detail = query.range(0, 50000).execute().data
+    df = safe_df(detail)
+
+    if df.empty:
+        st.warning("⚠️ ไม่พบข้อมูล Detail (แต่ Summary ถูกต้อง)")
+        st.stop()
+
     # -----------------------------
-    # DETAIL
+    # FORCE TYPE
+    # -----------------------------
+    for c in ["total_kanban", "sent_kanban", "remaining_kanban"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+
+    # -----------------------------
+    # DISPLAY DETAIL
     # -----------------------------
     st.subheader("📋 รายละเอียดแยกตาม Model")
 
@@ -277,7 +277,8 @@ elif mode == "Lot Kanban Summary":
     )
 
     st.caption(
-        f"📊 Source: vw_lot_kanban_summary | "
+        f"📊 Source of Truth: RPC(get_lot_kanban_summary) | "
+        f"Detail: vw_lot_kanban_summary | "
         f"Lot {f_lot} | Total = {total}"
     )
 
@@ -352,6 +353,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
