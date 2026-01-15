@@ -147,50 +147,43 @@ if mode == "Scan Kanban":
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
 # =====================================================
-# 📊 LOT KANBAN SUMMARY (FINAL - RPC / NO LIMIT)
+# 📊 LOT KANBAN SUMMARY (PROFESSIONAL MODE)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
-    st.header("Lot Kanban Summary")
+    st.header("📊 Lot Kanban Summary")
 
-    # -----------------------------
-    # INPUT
-    # -----------------------------
-    c1, c2 = st.columns([2, 3])
+    # =============================
+    # FILTER INPUT
+    # =============================
+    c1, c2 = st.columns(2)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
 
-    load = st.button("📥 Load Data", type="primary")
-
-    if not load:
-        st.info("ℹ️ กรุณากรอก Lot แล้วกดปุ่ม **Load Data**")
-        st.stop()
-
     if not f_lot:
-        st.warning("❌ ต้องระบุ Lot No.")
+        st.info("⬅️ กรุณากรอก Lot No.")
         st.stop()
 
-    # =====================================================
-    # 1) LOAD SUMMARY BY RPC (SOURCE OF TRUTH)
-    # =====================================================
-    result = supabase.rpc(
-        "get_lot_kanban_summary",
-        {"p_lot": f_lot.strip()}
-    ).execute().data
+    # =============================
+    # KPI (SOURCE OF TRUTH)
+    # =============================
+    kpi_q = supabase.table("vw_lot_kanban_summary").select(
+        "total_kanban, sent_kanban, remaining_kanban"
+    ).eq("lot_no", f_lot.strip())
 
-    if not result:
-        st.error("❌ ไม่พบข้อมูล Lot นี้")
+    if f_model:
+        kpi_q = kpi_q.ilike("model_name", f"%{f_model.strip()}%")
+
+    kpi_df = safe_df(kpi_q.execute().data)
+
+    if kpi_df.empty:
+        st.warning("ไม่พบข้อมูล KPI")
         st.stop()
 
-    row = result[0]
+    total = int(kpi_df["total_kanban"].sum())
+    sent = int(kpi_df["sent_kanban"].sum())
+    remaining = int(kpi_df["remaining_kanban"].sum())
 
-    total = int(row["total_kanban"])
-    sent = int(row["sent_kanban"])
-    remaining = int(row["remaining_kanban"])
-
-    # -----------------------------
-    # KPI
-    # -----------------------------
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Total Kanban", total)
     k2.metric("✅ Sent", sent)
@@ -198,49 +191,109 @@ elif mode == "Lot Kanban Summary":
 
     st.divider()
 
-    # =====================================================
-    # 2) LOAD DETAIL (OPTIONAL / DISPLAY ONLY)
-    # =====================================================
-    query = (
-        supabase.table("vw_lot_kanban_summary")
-        .select(
-            "lot_no, model_name, total_kanban, sent_kanban, remaining_kanban"
-        )
-        .eq("lot_no", f_lot.strip())
+    # =============================
+    # STATUS FILTER (PRO MODE)
+    # =============================
+    status_filter = st.radio(
+        "แสดงวงจร",
+        ["ทั้งหมด", "ส่งแล้ว", "ยังไม่ส่ง"],
+        horizontal=True
     )
 
-    if f_model:
-        query = query.ilike("model_name", f"%{f_model.strip()}%")
+    # =============================
+    # LOAD CIRCUIT LEVEL DATA
+    # =============================
+    lot_df = safe_df(
+        supabase.table("lot_master")
+        .select(
+            "kanban_no, model_name, lot_no, wire_number"
+        )
+        .eq("lot_no", f_lot.strip())
+        .range(0, 50000)
+        .execute()
+        .data
+    )
 
-    detail = query.range(0, 50000).execute().data
-    df = safe_df(detail)
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select(
+            "kanban_no, created_at, last_scanned_at"
+        )
+        .range(0, 50000)
+        .execute()
+        .data
+    )
 
-    if df.empty:
-        st.warning("⚠️ ไม่พบข้อมูล Detail (แต่ Summary ถูกต้อง)")
+    if lot_df.empty:
+        st.warning("ไม่พบข้อมูลวงจรใน Lot นี้")
         st.stop()
 
-    # -----------------------------
-    # FORCE TYPE
-    # -----------------------------
-    for c in ["total_kanban", "sent_kanban", "remaining_kanban"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+    # =============================
+    # NORMALIZE
+    # =============================
+    lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
+    del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
 
-    # -----------------------------
-    # DISPLAY DETAIL
-    # -----------------------------
-    st.subheader("📋 รายละเอียดแยกตาม Model")
+    del_df["Delivered At (GMT+7)"] = (
+        del_df["last_scanned_at"]
+        .fillna(del_df["created_at"])
+        .apply(to_gmt7)
+    )
 
+    del_df["sent"] = 1
+
+    del_df = del_df[["kanban_no", "sent", "Delivered At (GMT+7)"]]
+
+    # =============================
+    # MERGE = 1 CIRCUIT = 1 ROW
+    # =============================
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
+    df["sent"] = df["sent"].fillna(0).astype(int)
+    df["Status"] = df["sent"].map(
+        {1: "Sent", 0: "Not Sent"}
+    )
+
+    # =============================
+    # APPLY STATUS FILTER
+    # =============================
+    if status_filter == "ส่งแล้ว":
+        df = df[df["sent"] == 1]
+    elif status_filter == "ยังไม่ส่ง":
+        df = df[df["sent"] == 0]
+
+    if df.empty:
+        st.warning("ไม่มีข้อมูลตามเงื่อนไขที่เลือก")
+        st.stop()
+
+    # =============================
+    # DISPLAY TABLE
+    # =============================
     st.dataframe(
-        df.sort_values("model_name"),
+        df[
+            [
+                "kanban_no",
+                "model_name",
+                "lot_no",
+                "wire_number",
+                "Status",
+                "Delivered At (GMT+7)"
+            ]
+        ].sort_values(
+            "Delivered At (GMT+7)",
+            ascending=False,
+            na_position="last"
+        ),
         use_container_width=True
     )
 
     st.caption(
-        f"📊 Source of Truth: RPC(get_lot_kanban_summary) | "
-        f"Detail: vw_lot_kanban_summary | "
-        f"Lot {f_lot} | Total = {total}"
+        f"📊 แสดง {len(df)} วงจร | Lot {f_lot} | Filter: {status_filter}"
     )
-
 
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
@@ -354,6 +407,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
