@@ -37,11 +37,10 @@ mode = st.sidebar.radio(
     [
         "✅ Scan Kanban",
         "📊 Model Kanban Status",
+        "📊 Lot Kanban Summary",  
         "🔍 Tracking Search",
-        "📊 Lot Kanban Summary",
         "🔐📤 Upload Lot Master",
         "📦 Kanban Delivery Log",
-        "📊 Lot Kanban Summary",
     ]
 )
 
@@ -831,6 +830,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+
 
 
 
