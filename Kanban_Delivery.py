@@ -245,7 +245,10 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
 # =====================================================
-elif mode == "📦 Kanban Delivery Log":
+# =====================================================
+# 📦 KANBAN DELIVERY LOG (FINAL - INCLUDE UNSCANNED)
+# =====================================================
+elif mode == "Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
@@ -259,64 +262,91 @@ elif mode == "📦 Kanban Delivery Log":
     st.divider()
 
     # -----------------------------
-    # LOAD DELIVERY LOG (SOURCE OF TRUTH)
+    # LOAD LOT MASTER (BASE)
     # -----------------------------
-    df = safe_df(
-        supabase.table("kanban_delivery")
+    lot_df = safe_df(
+        supabase.table("lot_master")
         .select(
-            "kanban_no, model_name, lot_no, wire_number, created_at, last_scanned_at"
+            "kanban_no, model_name, lot_no, wire_number"
         )
         .range(0, 50000)
         .execute()
         .data
     )
 
-    if df.empty:
-        st.warning("❌ ยังไม่มีข้อมูลการจัดส่ง")
+    if lot_df.empty:
+        st.error("❌ ไม่พบข้อมูล lot_master")
         st.stop()
+
+    # -----------------------------
+    # LOAD DELIVERY EVENT
+    # -----------------------------
+    del_df = safe_df(
+        supabase.table("kanban_delivery")
+        .select(
+            "kanban_no, created_at, last_scanned_at"
+        )
+        .range(0, 50000)
+        .execute()
+        .data
+    )
 
     # -----------------------------
     # NORMALIZE
     # -----------------------------
     for c in ["kanban_no", "model_name", "lot_no", "wire_number"]:
-        df[c] = df[c].astype(str).str.strip()
+        lot_df[c] = lot_df[c].astype(str).str.strip()
 
-    df["Delivered At"] = (
-        df["last_scanned_at"]
-        .fillna(df["created_at"])
-        .apply(to_gmt7)
+    if not del_df.empty:
+        del_df["kanban_no"] = del_df["kanban_no"].astype(str).str.strip()
+
+        del_df["Delivered At"] = (
+            del_df["last_scanned_at"]
+            .fillna(del_df["created_at"])
+            .apply(to_gmt7)
+        )
+
+        del_df = del_df[["kanban_no", "Delivered At"]]
+    else:
+        del_df = pd.DataFrame(columns=["kanban_no", "Delivered At"])
+
+    # -----------------------------
+    # LEFT JOIN (KEY FIX)
+    # -----------------------------
+    df = lot_df.merge(
+        del_df,
+        on="kanban_no",
+        how="left"
+    )
+
+    df["Status"] = df["Delivered At"].apply(
+        lambda x: "✅ Sent" if pd.notna(x) else "⏳ Not Sent"
     )
 
     # -----------------------------
-    # OR SEARCH LOGIC (KEY FIX)
+    # OR SEARCH (ANY FIELD)
     # -----------------------------
     masks = []
 
     if f_kanban:
         masks.append(df["kanban_no"].str.contains(f_kanban, case=False, na=False))
-
     if f_model:
         masks.append(df["model_name"].str.contains(f_model, case=False, na=False))
-
     if f_lot:
         masks.append(df["lot_no"].str.contains(f_lot, case=False, na=False))
-
     if f_wire:
         masks.append(df["wire_number"].str.contains(f_wire, case=False, na=False))
-
     if f_date:
         df["_date"] = pd.to_datetime(df["Delivered At"], errors="coerce").dt.date
         masks.append(df["_date"] == f_date)
 
-    # ❗ ต้องกรอกอย่างน้อย 1 ช่อง
     if not masks:
-        st.info("ℹ️ กรุณากรอกอย่างน้อย 1 ช่องเพื่อค้นหา")
+        st.info("ℹ️ พิมพ์อย่างน้อย 1 ช่องเพื่อค้นหา")
         st.stop()
 
-    # APPLY OR
     final_mask = masks[0]
     for m in masks[1:]:
-        final_mask = final_mask | m
+        final_mask |= m
 
     df = df[final_mask]
 
@@ -334,13 +364,15 @@ elif mode == "📦 Kanban Delivery Log":
                 "model_name",
                 "lot_no",
                 "wire_number",
+                "Status",
                 "Delivered At"
             ]
-        ].sort_values("Delivered At", ascending=False),
+        ].sort_values("Delivered At", ascending=False, na_position="last"),
         use_container_width=True
     )
 
-    st.caption(f"📊 พบ {len(df)} รายการ (จาก kanban_delivery)")
+    st.caption(f"📊 พบ {len(df)} รายการ (รวมยังไม่ Scan)")
+
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -382,6 +414,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
