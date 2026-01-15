@@ -363,7 +363,9 @@ elif mode == "📊 Lot Kanban Summary":
 
     st.divider()
 
-    # LOAD LOT MASTER
+    # =============================
+    # LOAD LOT MASTER (RAW)
+    # =============================
     query = supabase.table("lot_master").select(
         "kanban_no, model_name, lot_no"
     )
@@ -377,7 +379,9 @@ elif mode == "📊 Lot Kanban Summary":
         st.error("❌ ไม่พบข้อมูล lot_master")
         st.stop()
 
-    # NORMALIZE
+    # =============================
+    # NORMALIZE (❌ NO DROP ❌ NO UNIQUE)
+    # =============================
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
     lot_df["lot_no"] = (
@@ -389,29 +393,29 @@ elif mode == "📊 Lot Kanban Summary":
 
     if f_model:
         lot_df = lot_df[
-            lot_df["model_name"].str.contains(
-                f_model.strip(), case=False, na=False
-            )
+            lot_df["model_name"]
+            .str.contains(f_model.strip(), case=False, na=False)
         ]
 
-    if lot_df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
+    # =============================
+    # 📄 TOTAL RECORD (CSV LEVEL)
+    # =============================
+    total_record = len(lot_df)   # 👈 1365 ตรงนี้แน่นอน
 
-    # 📄 CSV RECORD
-    total_record = len(lot_df)
-
-    # ⚙️ CIRCUIT
+    # =============================
+    # ⚙️ TOTAL CIRCUIT
+    # =============================
     circuit_df = lot_df.drop_duplicates(subset=["kanban_no"])
     total_circuit = len(circuit_df)
 
+    # =============================
     # LOAD DELIVERY
+    # =============================
     del_df = safe_df(
         supabase.table("kanban_delivery")
         .select("kanban_no")
         .range(0, 50000)
-        .execute()
-        .data,
+        .execute().data,
         ["kanban_no"]
     )
 
@@ -424,13 +428,14 @@ elif mode == "📊 Lot Kanban Summary":
 
     remaining = total_circuit - sent
 
-    # KPI
+    # =============================
+    # KPI DISPLAY (ตรงตามที่คุณต้องการ)
+    # =============================
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("📄 Total Record (CSV)", total_record)
     k2.metric("⚙️ Total Circuit", total_circuit)
     k3.metric("✅ Sent", sent)
     k4.metric("⏳ Remaining", remaining)
-
 
 # =====================================================
 # 3) TRACKING SEARCH (GMT+7 + JOINT)
@@ -714,6 +719,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+
 
 
 
