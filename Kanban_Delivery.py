@@ -213,58 +213,37 @@ elif mode == "📊 Lot Kanban Summary":
     f_lot = c1.text_input("Lot No.")
     f_model = c2.text_input("Model")
 
-    st.divider()
-
-    # =====================================================
-    # 📄 LOAD LOT MASTER (FOR TOTAL RECORD – CSV LEVEL)
-    # =====================================================
-    lm_query = supabase.table("lot_master").select(
-        "kanban_no, model_name, lot_no"
-    )
-
-    if f_lot:
-        lm_query = lm_query.eq("lot_no", f_lot.strip())
-
-    if f_model:
-        lm_query = lm_query.ilike("model_name", f"%{f_model.strip()}%")
-
-    lot_df = safe_df(
-        lm_query.range(0, 50000).execute().data
-    )
-
-    total_record = len(lot_df)   # 👈 1365 จะมาจากตรงนี้
-
-    # =====================================================
-    # ⚙️ LOAD SUMMARY TABLE (PRODUCTION COUNT)
-    # =====================================================
-    sum_query = supabase.table("lot_kanban_summary").select(
+    # -----------------------------
+    # LOAD SUMMARY TABLE
+    # -----------------------------
+    query = supabase.table("lot_kanban_summary").select(
         "lot_no, model_name, total_circuit, sent_circuit, remaining_circuit, last_updated_at"
     )
 
     if f_lot:
-        sum_query = sum_query.ilike("lot_no", f"%{f_lot.strip()}%")
+        query = query.ilike("lot_no", f"%{f_lot.strip()}%")
 
     if f_model:
-        sum_query = sum_query.ilike("model_name", f"%{f_model.strip()}%")
+        query = query.ilike("model_name", f"%{f_model.strip()}%")
 
-    df = safe_df(sum_query.execute().data)
+    data = query.execute().data
+    df = safe_df(data)
 
     if df.empty:
         st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
         st.stop()
 
-    # =====================================================
-    # KPI SUMMARY
-    # =====================================================
-    total_circuit = int(df["total_circuit"].sum())
+    # -----------------------------
+    # KPI SUMMARY (FROM SUMMARY TABLE)
+    # -----------------------------
+    total = int(df["total_circuit"].sum())
     sent = int(df["sent_circuit"].sum())
     remaining = int(df["remaining_circuit"].sum())
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📄 Total Record (CSV)", total_record)
-    k2.metric("⚙️ Total Circuit", total_circuit)
-    k3.metric("✅ Sent", sent)
-    k4.metric("⏳ Remaining", remaining)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total Circuit", total)
+    k2.metric("✅ Sent", sent)
+    k3.metric("⏳ Remaining", remaining)
 
     st.divider()
 
@@ -277,24 +256,24 @@ elif mode == "📊 Lot Kanban Summary":
     # -----------------------------
     # DISPLAY TABLE
     # -----------------------------
+    show_cols = [
+        "lot_no",
+        "model_name",
+        "total_circuit",
+        "sent_circuit",
+        "remaining_circuit",
+        "Last Update (GMT+7)"
+    ]
+
     st.dataframe(
-        df[
-            [
-                "lot_no",
-                "model_name",
-                "total_circuit",
-                "sent_circuit",
-                "remaining_circuit",
-                "Last Update (GMT+7)"
-            ]
-        ].sort_values(["lot_no", "model_name"]),
+        df[show_cols].sort_values(
+            ["lot_no", "model_name"],
+            ascending=True
+        ),
         use_container_width=True
     )
 
-    st.caption(
-        f"📊 CSV Record = {total_record} | "
-        f"Production Circuit = {total_circuit}"
-    )
+    st.caption(f"📊 แสดงผลทั้งหมด {len(df)} Lot / Model")
 
 # =====================================================
 # 📦 3) KANBAN DELIVERY LOG
@@ -445,5 +424,6 @@ elif mode == "🔍 Tracking Search":
     )
 
     st.dataframe(df, use_container_width=True)
+
 
 
