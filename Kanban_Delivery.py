@@ -476,14 +476,14 @@ elif mode == "🔐📤 Upload Lot Master":
             .str.strip()
         )
 # =====================================================
-# 5) 📦 KANBAN DELIVERY LOG (STRICT LOT MODE)
+# 5) 📦 KANBAN DELIVERY LOG (FULL DATA / NO 1000 LIMIT)
 # =====================================================
 elif mode == "📦 Kanban Delivery Log":
 
     st.header("📦 Kanban Delivery Log")
 
     # -----------------------------
-    # FILTER MODE (STRICT LOT)
+    # SEARCH (USER INPUT)
     # -----------------------------
     c1, c2, c3 = st.columns(3)
     f_kanban = c1.text_input("Kanban No. (ค้นหาบางส่วนได้)")
@@ -493,21 +493,25 @@ elif mode == "📦 Kanban Delivery Log":
     st.divider()
 
     # -----------------------------
-    # LOAD LOT MASTER (BASE)
+    # LOAD LOT MASTER (BASE TABLE)
+    # 🔥 FIX: USE range() TO AVOID 1000 LIMIT
     # -----------------------------
-    lot_df = safe_df(
-        supabase.table("lot_master")
-        .select("kanban_no, model_name, lot_no")
-        .execute()
-        .data
+    query_lot = supabase.table("lot_master").select(
+        "kanban_no, model_name, lot_no"
     )
 
+    if f_lot:
+        query_lot = query_lot.eq("lot_no", f_lot.strip())
+
+    lot_raw = query_lot.range(0, 50000).execute().data
+    lot_df = safe_df(lot_raw)
+
     if lot_df.empty:
-        st.warning("ไม่พบข้อมูล lot_master")
+        st.error("❌ ไม่พบข้อมูล lot_master (ตรวจสอบ Lot ให้ตรง 100%)")
         st.stop()
 
     # -----------------------------
-    # NORMALIZE (CRITICAL)
+    # NORMALIZE DATA (CRITICAL)
     # -----------------------------
     lot_df["kanban_no"] = lot_df["kanban_no"].astype(str).str.strip()
     lot_df["model_name"] = lot_df["model_name"].astype(str).str.strip()
@@ -519,7 +523,7 @@ elif mode == "📦 Kanban Delivery Log":
     )
 
     # -----------------------------
-    # APPLY FILTER (BASE SIDE)
+    # APPLY SEARCH FILTER (SAFE)
     # -----------------------------
     if f_kanban:
         lot_df = lot_df[
@@ -533,13 +537,8 @@ elif mode == "📦 Kanban Delivery Log":
             .str.contains(f_model.strip(), case=False, na=False)
         ]
 
-    if f_lot:
-        lot_df = lot_df[
-            lot_df["lot_no"] == f_lot.strip()
-        ]
-
     if lot_df.empty:
-        st.error("❌ ไม่พบข้อมูลตามเงื่อนไข (ตรวจสอบ Lot ให้ตรง 100%)")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา")
         st.stop()
 
     # -----------------------------
@@ -548,13 +547,19 @@ elif mode == "📦 Kanban Delivery Log":
     lot_df = lot_df.drop_duplicates(subset=["kanban_no"])
 
     # -----------------------------
-    # LOAD DELIVERY (EVENT TABLE)
+    # LOAD DELIVERY TABLE (EVENT)
+    # 🔥 FIX: NO LIMIT
     # -----------------------------
-    del_df = safe_df(
+    del_raw = (
         supabase.table("kanban_delivery")
         .select("kanban_no, created_at, last_scanned_at")
+        .range(0, 50000)
         .execute()
-        .data,
+        .data
+    )
+
+    del_df = safe_df(
+        del_raw,
         ["kanban_no", "created_at", "last_scanned_at"]
     )
 
@@ -572,7 +577,9 @@ elif mode == "📦 Kanban Delivery Log":
             .apply(to_gmt7)
         )
 
-        del_df = del_df[["kanban_no", "sent", "Delivered At (GMT+7)"]]
+        del_df = del_df[
+            ["kanban_no", "sent", "Delivered At (GMT+7)"]
+        ]
     else:
         del_df = pd.DataFrame(
             columns=["kanban_no", "sent", "Delivered At (GMT+7)"]
@@ -590,7 +597,7 @@ elif mode == "📦 Kanban Delivery Log":
     df["sent"] = df["sent"].fillna(0).astype(int)
 
     # -----------------------------
-    # KPI (TRUTH SOURCE = LOT MASTER)
+    # KPI SUMMARY (TRUTH SOURCE)
     # -----------------------------
     total = len(df)
     sent = int(df["sent"].sum())
@@ -598,11 +605,11 @@ elif mode == "📦 Kanban Delivery Log":
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Total (Lot Master)", total)
-    k2.metric("✅ Sent", sent)
+    k2.metric("✅ Sent (kanban_delivery)", sent)
     k3.metric("⏳ Remaining", remaining)
 
     # -----------------------------
-    # DISPLAY
+    # DISPLAY RESULT
     # -----------------------------
     st.dataframe(
         df.sort_values(
@@ -612,5 +619,9 @@ elif mode == "📦 Kanban Delivery Log":
         ),
         use_container_width=True
     )
+
+    st.caption(f"📊 แสดงผลทั้งหมด {len(df)} วงจร")
+)
+
 
 
