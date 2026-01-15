@@ -188,21 +188,27 @@ if mode == "Scan Kanban":
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
 # =====================================================
-# 📊 LOT KANBAN SUMMARY (FINAL / PRODUCTION SAFE)
+# 📊 LOT KANBAN SUMMARY (FINAL + LOAD BUTTON)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
     st.header("Lot Kanban Summary")
 
     # -----------------------------
-    # FILTER
+    # INPUT
     # -----------------------------
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns([2, 3])
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
 
+    load = st.button("📥 Load Data", type="primary")
+
+    if not load:
+        st.info("ℹ️ กรุณากรอก Lot แล้วกดปุ่ม **Load Data**")
+        st.stop()
+
     if not f_lot:
-        st.info("ℹ️ กรุณาใส่ Lot No. เพื่อแสดงข้อมูล")
+        st.warning("❌ ต้องระบุ Lot No.")
         st.stop()
 
     # -----------------------------
@@ -219,21 +225,21 @@ elif mode == "Lot Kanban Summary":
     if f_model:
         query = query.ilike("model_name", f"%{f_model.strip()}%")
 
-    raw = query.range(0, 50000).execute().data
-    df = safe_df(raw)
+    data = query.range(0, 50000).execute().data
+    df = safe_df(data)
 
     if df.empty:
-        st.warning("❌ ไม่พบข้อมูล Lot นี้ในระบบ")
+        st.error("❌ ไม่พบข้อมูล Lot นี้")
         st.stop()
 
     # -----------------------------
-    # 🔒 FORCE TYPE (CRITICAL)
+    # FORCE TYPE
     # -----------------------------
     for c in ["total_kanban", "sent_kanban", "remaining_kanban"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
 
     # -----------------------------
-    # ✅ AGGREGATE FINAL (1 LOT = 1 TRUTH)
+    # AGGREGATE (1 LOT = 1 TRUTH)
     # -----------------------------
     summary = (
         df.groupby("lot_no", as_index=False)
@@ -251,7 +257,7 @@ elif mode == "Lot Kanban Summary":
     remaining = int(row["remaining_kanban"])
 
     # -----------------------------
-    # KPI DISPLAY
+    # KPI
     # -----------------------------
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Total Kanban", total)
@@ -261,7 +267,7 @@ elif mode == "Lot Kanban Summary":
     st.divider()
 
     # -----------------------------
-    # DETAIL TABLE (BY MODEL)
+    # DETAIL
     # -----------------------------
     st.subheader("📋 รายละเอียดแยกตาม Model")
 
@@ -274,6 +280,7 @@ elif mode == "Lot Kanban Summary":
         f"📊 Source: vw_lot_kanban_summary | "
         f"Lot {f_lot} | Total = {total}"
     )
+
 
 # =====================================================
 # 3) KANBAN DELIVERY LOG
@@ -345,5 +352,6 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
