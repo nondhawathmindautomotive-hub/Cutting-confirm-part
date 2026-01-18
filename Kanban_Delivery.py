@@ -2,6 +2,14 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 
+if "delivered_at" in df.columns:
+    df["delivered_at"] = pd.to_datetime(df["delivered_at"], utc=True)
+    df["delivered_at_th"] = (
+        df["delivered_at"]
+        .dt.tz_convert("Asia/Bangkok")
+        .dt.strftime("%Y-%m-%d %H:%M:%S")
+    )
+
 # =====================================================
 # PAGE CONFIG
 # =====================================================
@@ -342,6 +350,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
