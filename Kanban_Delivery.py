@@ -254,33 +254,32 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 elif mode == "Kanban Delivery Log":
 
-    st.header("📦 Kanban Delivery Log")
+    st.header("📦 Kanban Delivery Log (Audit)")
 
     c1, c2, c3 = st.columns(3)
     c4, c5 = st.columns(2)
 
     f_kanban = c1.text_input("Kanban No.")
-    f_lot    = c2.text_input("Lot No.")
-    f_model  = c3.text_input("Model")
-    f_wire   = c4.text_input("Wire Number")
-    f_date   = c5.date_input("Scan Date", value=None)
+    f_lot = c2.text_input("Lot No.")
+    f_model = c3.text_input("Model")
+    f_wire = c4.text_input("Wire Number / Part No.")
+    f_date = c5.date_input("Scan Date", value=None)
 
     if st.button("🔍 Load Data"):
 
-        payload = {
-            "p_kanban": f_kanban or None,
-            "p_lot": f_lot or None,
-            "p_model": f_model or None,
-            "p_wire": f_wire or None,
-            "p_scan_date": str(f_date) if f_date else None
-        }
-
         res = supabase.rpc(
             "rpc_kanban_delivery_log",
-            payload
+            {
+                "p_kanban": f_kanban or None,
+                "p_lot": f_lot or None,
+                "p_model": f_model or None,
+                "p_wire": f_wire or None,
+                "p_part": f_wire or None,
+                "p_scan_date": str(f_date) if f_date else None
+            }
         ).execute()
 
-        df = pd.DataFrame(res.data)
+        df = safe_df(res.data)
 
         if df.empty:
             st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
@@ -296,16 +295,25 @@ elif mode == "Kanban Delivery Log":
         k2.metric("✅ Sent", sent)
         k3.metric("⏳ Not Sent", remaining)
 
+        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+
         st.dataframe(
-            df.sort_values(
-                by="delivered_at",
-                ascending=False,
-                na_position="last"
-            ),
-            use_container_width=True
+            df[
+                [
+                    "kanban_no",
+                    "lot_no",
+                    "model_name",
+                    "harness_part_no",
+                    "wire_number",
+                    "status",
+                    "Delivered At (GMT+7)"
+                ]
+            ],
+            use_container_width=True,
+            height=650
         )
 
-        st.caption(f"📊 แสดง {total} วงจร (RPC – ข้อมูลจริง)")
+        st.caption("📊 Source: lot_master + kanban_delivery (RPC Audit)")
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -347,6 +355,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
