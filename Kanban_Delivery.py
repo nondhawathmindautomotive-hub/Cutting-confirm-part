@@ -366,43 +366,33 @@ elif mode == "Part Tracking":
 
     c1, c2 = st.columns(2)
     f_lot = c1.text_input("Lot No")
-    f_part = c2.text_input("Harness Part No")
+    f_harness = c2.text_input("Harness Part No")
 
-    if not f_lot and not f_part:
+    if not f_lot and not f_harness:
         st.info("กรุณาใส่ Lot No หรือ Harness Part No อย่างน้อย 1 ช่อง")
         st.stop()
 
     if st.button("🔍 Load Data"):
 
-        with st.spinner("กำลังค้นหาข้อมูลจริงจากฐานข้อมูล..."):
-            res = supabase.rpc(
-                "rpc_part_tracking",
-                {
-                    "p_lot_no": f_lot.strip() or None,
-                    "p_harness_part_no": f_part.strip() or None
-                }
-            ).execute()
+        # =============================
+        # RPC CALL
+        # =============================
+        res = supabase.rpc(
+            "rpc_part_tracking_lot_harness",
+            {
+                "p_lot_no": f_lot.strip() if f_lot else None,
+                "p_harness_part_no": f_harness.strip() if f_harness else None
+            }
+        ).execute()
 
-        df = pd.DataFrame(res.data)
+        df = safe_df(res.data)
 
         if df.empty:
-            st.warning("ไม่พบข้อมูล")
+            st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
             st.stop()
 
         # =============================
-        # KPI
-        # =============================
-        total = len(df)
-        sent = df["sent"].sum()
-        remaining = total - sent
-
-        k1, k2, k3 = st.columns(3)
-        k1.metric("📦 Total", total)
-        k2.metric("✅ Sent", sent)
-        k3.metric("⏳ Remaining", remaining)
-
-        # =============================
-        # FORMAT
+        # TIMEZONE (TH)
         # =============================
         df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
         df["Status"] = df["sent"].apply(
@@ -410,28 +400,66 @@ elif mode == "Part Tracking":
         )
 
         # =============================
+        # KPI
+        # =============================
+        total = len(df)
+        sent = (df["sent"] == True).sum()
+        remaining = total - sent
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("📦 Total", total)
+        k2.metric("✅ Sent", sent)
+        k3.metric("⏳ Remaining", remaining)
+
+        st.divider()
+
+        # =============================
+        # FILTER STATUS
+        # =============================
+        status_filter = st.radio(
+            "แสดงข้อมูล",
+            ["ALL", "SENT", "REMAIN"],
+            horizontal=True,
+            format_func=lambda x: {
+                "ALL": "📦 ทั้งหมด",
+                "SENT": "✅ ส่งแล้ว",
+                "REMAIN": "⏳ ยังไม่ส่ง"
+            }[x]
+        )
+
+        if status_filter == "SENT":
+            df = df[df["sent"] == True]
+        elif status_filter == "REMAIN":
+            df = df[df["sent"] == False]
+
+        # =============================
         # DISPLAY TABLE
         # =============================
         st.dataframe(
             df[
                 [
-                    "kanban_no",
                     "lot_no",
+                    "kanban_no",
                     "model_name",
                     "harness_part_no",
                     "wire_number",
                     "Status",
                     "Delivered At (GMT+7)"
                 ]
-            ],
+            ].sort_values(
+                by="Delivered At (GMT+7)",
+                ascending=False,
+                na_position="last"
+            ),
             use_container_width=True,
             height=600
         )
 
         st.caption(
-            f"📊 Source: rpc_part_tracking | "
-            f"Total จริง = {total}"
+            "📊 Source: rpc_part_tracking_lot_harness | "
+            "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
