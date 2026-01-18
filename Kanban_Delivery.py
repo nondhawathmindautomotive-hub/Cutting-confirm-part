@@ -358,77 +358,86 @@ elif mode == "Upload Lot Master":
         st.dataframe(df.head())
 
 # =====================================================
-# 6) PART TRACKING (WIRE / HARNESS)
+# 🧩 PART TRACKING (LOT / HARNESS)
 # =====================================================
-elif mode == "Part Tracking":
+elif mode == "Tracking Search":
 
-    st.header("🧩 Part Tracking (Wire / Harness)")
+    st.header("🧩 Part Tracking (Lot / Harness)")
 
     c1, c2 = st.columns(2)
-    f_wire = c1.text_input("Wire Number")
+    f_lot  = c1.text_input("Lot No")
     f_part = c2.text_input("Harness Part No")
 
-    if not f_wire and not f_part:
-        st.info("กรุณาใส่ Wire Number หรือ Harness Part No อย่างน้อย 1 ช่อง")
+    if not f_lot and not f_part:
+        st.info("กรุณาใส่ Lot No หรือ Harness Part No อย่างน้อย 1 ช่อง")
         st.stop()
 
-    with st.spinner("กำลังค้นหาข้อมูลจากฐานข้อมูล..."):
-        res = supabase.rpc(
-            "rpc_part_tracking",
-            {
-                "p_wire_number": f_wire or None,
-                "p_harness_part_no": f_part or None
-            }
-        ).execute()
+    if st.button("🔍 Search"):
 
-    df = pd.DataFrame(res.data)
+        with st.spinner("กำลังค้นหาข้อมูลการจัดส่ง..."):
+            res = supabase.rpc(
+                "rpc_part_tracking",
+                {
+                    "p_lot_no": f_lot.strip() or None,
+                    "p_harness_part_no": f_part.strip() or None
+                }
+            ).execute()
 
-    if df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
+        df = safe_df(res.data)
 
-    # =============================
-    # KPI
-    # =============================
-    total = len(df)
-    sent = (df["status"] == "Sent").sum()
-    not_sent = total - sent
+        if df.empty:
+            st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+            st.stop()
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total", total)
-    k2.metric("✅ Sent", sent)
-    k3.metric("⏳ Not Sent", not_sent)
+        # =============================
+        # KPI
+        # =============================
+        total = len(df)
+        sent = (df["sent"] == True).sum()
+        remaining = total - sent
 
-    st.divider()
+        k1, k2, k3 = st.columns(3)
+        k1.metric("📦 Total", total)
+        k2.metric("✅ Sent", sent)
+        k3.metric("⏳ Not Sent", remaining)
 
-    # =============================
-    # TIMEZONE FORMAT
-    # =============================
-    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+        st.divider()
 
-    # =============================
-    # DISPLAY TABLE
-    # =============================
-    st.dataframe(
-        df[
-            [
-                "kanban_no",
-                "lot_no",
-                "model_name",
-                "harness_part_no",
-                "wire_number",
-                "status",
-                "Delivered At (GMT+7)"
-            ]
-        ],
-        use_container_width=True,
-        height=600
-    )
+        # =============================
+        # FORMAT
+        # =============================
+        df["Status"] = df["sent"].apply(
+            lambda x: "Sent" if x else "Remaining"
+        )
+        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
 
-    st.caption(
-        f"📊 Source: rpc_part_tracking | "
-        f"Total = {total}"
-    )
+        # =============================
+        # TABLE
+        # =============================
+        st.dataframe(
+            df[
+                [
+                    "kanban_no",
+                    "lot_no",
+                    "model_name",
+                    "harness_part_no",
+                    "wire_number",
+                    "Status",
+                    "Delivered At (GMT+7)"
+                ]
+            ].sort_values(
+                by="Delivered At (GMT+7)",
+                ascending=False
+            ),
+            use_container_width=True,
+            height=600
+        )
+
+        st.caption(
+            "📊 Source: rpc_part_tracking | "
+            "ค้นหาด้วย Lot No / Harness Part No | เวลาไทย (UTC+7)"
+        )
+
 
 
 
