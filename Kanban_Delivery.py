@@ -352,9 +352,59 @@ elif mode == "Upload Lot Master":
         st.stop()
 
     file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
-    if file:
-        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-        st.dataframe(df.head())
+
+    if not file:
+        st.info("กรุณาเลือกไฟล์ก่อน")
+        st.stop()
+
+    # =============================
+    # LOAD FILE
+    # =============================
+    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+
+    st.subheader("📄 Preview Data")
+    st.dataframe(df.head(10), use_container_width=True)
+
+    st.divider()
+
+    # =============================
+    # UPLOAD BUTTON (ที่หายไป)
+    # =============================
+    if st.button("🚀 Upload to Lot Master", type="primary"):
+
+        with st.spinner("กำลังอัปโหลดข้อมูล..."):
+            success = 0
+            fail = 0
+
+            for _, r in df.iterrows():
+                payload = {
+                    "lot_no": str(r.get("lot_no")).strip(),
+                    "kanban_no": str(r.get("kanban_no")).strip(),
+                    "model_name": str(r.get("model_name")).strip(),
+                    "harness_part_no": str(r.get("Harness_part_no")).strip()
+                        if not pd.isna(r.get("Harness_part_no")) else None,
+                    "wire_number": str(r.get("wire_number")).strip()
+                        if not pd.isna(r.get("wire_number")) else None,
+                    "subpackage_number": str(r.get("subpackage_number")).strip()
+                        if not pd.isna(r.get("subpackage_number")) else None,
+                    "cable_name": str(r.get("Cable_name")).strip()
+                        if not pd.isna(r.get("Cable_name")) else None,
+                    "wire_length_mm": r.get("wire_length_mm"),
+                    "joint_a": r.get("joint_a"),
+                }
+
+                try:
+                    supabase.table("lot_master")\
+                        .upsert(payload, on_conflict="kanban_no")\
+                        .execute()
+                    success += 1
+                except:
+                    fail += 1
+
+        st.success(f"✅ Upload สำเร็จ {success} รายการ")
+        if fail:
+            st.error(f"❌ ผิดพลาด {fail} รายการ")
+
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -458,6 +508,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
