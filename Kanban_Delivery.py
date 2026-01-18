@@ -150,13 +150,14 @@ elif mode == "Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary")
 
-    # =============================
-    # FILTER
-    # =============================
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
-    f_model = c2.text_input("Model (ค้นหาบางส่วนได้)")
-    f_status = c3.selectbox(
+    f_model = c2.text_input("Model")
+    f_wire = c3.text_input("Wire Number")
+    f_part = c4.text_input("Harness Part No")
+
+    c5 = st.columns(1)[0]
+    f_status = c5.selectbox(
         "Status",
         ["ALL", "SENT", "REMAIN"],
         format_func=lambda x: {
@@ -166,9 +167,10 @@ elif mode == "Lot Kanban Summary":
         }[x]
     )
 
-    if not f_lot:
-        st.info("กรุณาใส่ Lot No.")
-        st.stop()
+if not f_lot:
+    st.info("กรุณาใส่ Lot No.")
+    st.stop()
+
 
     # =====================================================
     # 🔢 KPI — SOURCE OF TRUTH (NO LIMIT, COUNT FROM DB)
@@ -342,6 +344,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
