@@ -360,21 +360,21 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
 # =====================================================
-elif mode == "Part Tracking":
+elif mode == "Tracking Search":
 
     st.header("🧩 Part Tracking (Lot / Harness)")
 
     c1, c2 = st.columns(2)
-    f_lot  = c1.text_input("Lot No")
+    f_lot = c1.text_input("Lot No")
     f_part = c2.text_input("Harness Part No")
 
     if not f_lot and not f_part:
         st.info("กรุณาใส่ Lot No หรือ Harness Part No อย่างน้อย 1 ช่อง")
         st.stop()
 
-    if st.button("🔍 Search"):
+    if st.button("🔍 Load Data"):
 
-        with st.spinner("กำลังค้นหาข้อมูลการจัดส่ง..."):
+        with st.spinner("กำลังค้นหาข้อมูลจริงจากฐานข้อมูล..."):
             res = supabase.rpc(
                 "rpc_part_tracking",
                 {
@@ -383,36 +383,34 @@ elif mode == "Part Tracking":
                 }
             ).execute()
 
-        df = safe_df(res.data)
+        df = pd.DataFrame(res.data)
 
         if df.empty:
-            st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+            st.warning("ไม่พบข้อมูล")
             st.stop()
 
         # =============================
         # KPI
         # =============================
         total = len(df)
-        sent = (df["sent"] == True).sum()
+        sent = df["sent"].sum()
         remaining = total - sent
 
         k1, k2, k3 = st.columns(3)
         k1.metric("📦 Total", total)
         k2.metric("✅ Sent", sent)
-        k3.metric("⏳ Not Sent", remaining)
-
-        st.divider()
+        k3.metric("⏳ Remaining", remaining)
 
         # =============================
         # FORMAT
         # =============================
+        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
         df["Status"] = df["sent"].apply(
             lambda x: "Sent" if x else "Remaining"
         )
-        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
 
         # =============================
-        # TABLE
+        # DISPLAY TABLE
         # =============================
         st.dataframe(
             df[
@@ -425,18 +423,17 @@ elif mode == "Part Tracking":
                     "Status",
                     "Delivered At (GMT+7)"
                 ]
-            ].sort_values(
-                by="Delivered At (GMT+7)",
-                ascending=False
-            ),
+            ],
             use_container_width=True,
             height=600
         )
 
         st.caption(
-            "📊 Source: rpc_part_tracking | "
-            "ค้นหาด้วย Lot No / Harness Part No | เวลาไทย (UTC+7)"
+            f"📊 Source: rpc_part_tracking | "
+            f"Total จริง = {total}"
         )
+
+
 
 
 
