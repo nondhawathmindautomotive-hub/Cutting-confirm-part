@@ -150,14 +150,16 @@ elif mode == "Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary")
 
+    # =============================
+    # FILTER
+    # =============================
     c1, c2, c3, c4 = st.columns(4)
     f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model")
     f_wire = c3.text_input("Wire Number")
     f_part = c4.text_input("Harness Part No")
 
-    c5 = st.columns(1)[0]
-    f_status = c5.selectbox(
+    f_status = st.selectbox(
         "Status",
         ["ALL", "SENT", "REMAIN"],
         format_func=lambda x: {
@@ -167,22 +169,26 @@ elif mode == "Lot Kanban Summary":
         }[x]
     )
 
-if not f_lot:
-    st.info("กรุณาใส่ Lot No.")
-    st.stop()
+    # ⛔ ต้องอยู่ตรงนี้เท่านั้น
+    if not f_lot:
+        st.info("กรุณาใส่ Lot No.")
+        st.stop()
 
-
-    # =====================================================
-    # 🔢 KPI — SOURCE OF TRUTH (NO LIMIT, COUNT FROM DB)
-    # =====================================================
+    # =============================
+    # KPI
+    # =============================
     with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
         kpi_res = supabase.rpc(
-            "rpc_lot_kanban_kpi",
-            {"p_lot_no": f_lot.strip()}
+            "rpc_part_kpi",
+            {
+                "p_lot_no": f_lot.strip(),
+                "p_wire_number": f_wire.strip() or None,
+                "p_harness_part_no": f_part.strip() or None
+            }
         ).execute()
 
     if not kpi_res.data:
-        st.warning("ไม่พบข้อมูล Lot นี้")
+        st.warning("ไม่พบข้อมูล")
         st.stop()
 
     kpi = kpi_res.data[0]
@@ -198,16 +204,18 @@ if not f_lot:
 
     st.divider()
 
-    # =====================================================
-    # 📋 CIRCUIT TABLE — DETAIL VIEW (FILTERABLE)
-    # =====================================================
+    # =============================
+    # DETAIL TABLE
+    # =============================
     with st.spinner("กำลังโหลดรายการวงจร..."):
         res = supabase.rpc(
             "rpc_lot_kanban_circuits",
             {
                 "p_lot_no": f_lot.strip(),
                 "p_model": f_model.strip() or None,
-                "p_status": f_status
+                "p_status": f_status,
+                "p_wire_number": f_wire.strip() or None,
+                "p_harness_part_no": f_part.strip() or None
             }
         ).execute()
 
@@ -217,31 +225,26 @@ if not f_lot:
         st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
         st.stop()
 
-    # =============================
-    # FORMAT
-    # =============================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
     df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
 
-    # =============================
-    # DISPLAY TABLE (PRO LEVEL)
-    # =============================
     st.dataframe(
         df[
             [
                 "kanban_no",
                 "model_name",
+                "harness_part_no",
                 "wire_number",
                 "Status",
                 "Delivered At (GMT+7)"
             ]
         ],
         use_container_width=True,
-        height=600
+        height=650
     )
 
     st.caption(
-        f"📊 Source: rpc_lot_kanban_kpi + rpc_lot_kanban_circuits | "
+        f"📊 Source: rpc_part_kpi + rpc_lot_kanban_circuits | "
         f"Lot {f_lot} | Total จริง = {total_kanban}"
     )
 
@@ -344,6 +347,7 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
 
 
 
