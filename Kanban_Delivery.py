@@ -63,7 +63,7 @@ mode = st.sidebar.radio(
         "Kanban Delivery Log",
         "Tracking Search",
         "Upload Lot Master",
-        "Part Tracking", 
+        "Tracking Search", 
     ]
 )
 
@@ -432,6 +432,7 @@ elif mode == "Tracking Search":
             f"📊 Source: rpc_part_tracking | "
             f"Total จริง = {total}"
         )
+
 
 
 
