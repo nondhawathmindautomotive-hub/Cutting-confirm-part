@@ -254,16 +254,16 @@ elif mode == "Lot Kanban Summary":
 # =====================================================
 elif mode == "Kanban Delivery Log":
 
-    st.header("📦 Kanban Delivery Log ")
+    st.header("📦 Kanban Delivery Log")
 
     c1, c2, c3 = st.columns(3)
     c4, c5 = st.columns(2)
 
     f_kanban = c1.text_input("Kanban No.")
-    f_lot = c2.text_input("Lot No.")
-    f_model = c3.text_input("Model")
-    f_wire = c4.text_input("Wire Number / Part No.")
-    f_date = c5.date_input("Scan Date", value=None)
+    f_lot    = c2.text_input("Lot No.")
+    f_model  = c3.text_input("Model")
+    f_wire   = c4.text_input("Wire / Part No.")
+    f_date   = c5.date_input("Scan Date", value=None)
 
     if st.button("🔍 Load Data"):
 
@@ -285,7 +285,14 @@ elif mode == "Kanban Delivery Log":
             st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
             st.stop()
 
+        # =============================
+        # FORMAT TIME (TH)
+        # =============================
+        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+
+        # =============================
         # KPI
+        # =============================
         total = len(df)
         sent = (df["status"] == "Sent").sum()
         remaining = total - sent
@@ -295,25 +302,40 @@ elif mode == "Kanban Delivery Log":
         k2.metric("✅ Sent", sent)
         k3.metric("⏳ Not Sent", remaining)
 
-        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+        st.divider()
 
+        # =============================
+        # TABLE (FULL DETAIL)
+        # =============================
         st.dataframe(
             df[
                 [
-                    "kanban_no",
                     "lot_no",
+                    "kanban_no",
+                    "wire_harness_code",
                     "model_name",
                     "harness_part_no",
                     "wire_number",
+                    "subpackage_number",
+                    "cable_name",
+                    "wire_length_mm",
+                    "joint_a",
+                    "joint_b",
+                    "mc_a",
+                    "mc_b",
+                    "twist_mc",
                     "status",
-                    "Delivered At (GMT+7)"
+                    "Delivered At (GMT+7)",
+                    "delivered_by_name"
                 ]
             ],
             use_container_width=True,
-            height=650
+            height=700
         )
 
-        st.caption("📊 Source: lot_master + kanban_delivery (RPC Audit)")
+        st.caption(
+            "📊 Source: lot_master + kanban_delivery + operator_master (RPC)"
+        )
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -565,6 +587,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
