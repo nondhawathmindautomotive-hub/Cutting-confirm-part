@@ -360,7 +360,7 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
 # =====================================================
-elif mode == "Tracking Search":
+elif mode == "Part Tracking":
 
     st.header("🧩 Part Tracking (Lot / Harness)")
 
@@ -437,30 +437,6 @@ elif mode == "Tracking Search":
             "📊 Source: rpc_part_tracking | "
             "ค้นหาด้วย Lot No / Harness Part No | เวลาไทย (UTC+7)"
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
