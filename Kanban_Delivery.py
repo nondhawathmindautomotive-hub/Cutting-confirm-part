@@ -61,7 +61,6 @@ mode = st.sidebar.radio(
         "Scan Kanban",
         "Lot Kanban Summary",
         "Kanban Delivery Log",
-        "Tracking Search",
         "Upload Lot Master",
         "Part Tracking", 
     ]
@@ -459,6 +458,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
