@@ -341,70 +341,127 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER
+# 5) UPLOAD LOT MASTER (PRODUCTION VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master")
+    st.header("🔐 Upload Lot Master (Latest Only)")
 
+    # -----------------------------
+    # PASSWORD
+    # -----------------------------
     if st.text_input("Password", type="password") != "planner":
-        st.warning("Planner only")
+        st.warning("❌ Planner only")
         st.stop()
 
+    # -----------------------------
+    # FILE UPLOAD
+    # -----------------------------
     file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
-
     if not file:
-        st.info("กรุณาเลือกไฟล์ก่อน")
         st.stop()
 
-    # =============================
-    # LOAD FILE
-    # =============================
-    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+    # -----------------------------
+    # READ FILE
+    # -----------------------------
+    try:
+        if file.name.endswith(".csv"):
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+    except Exception as e:
+        st.error(f"❌ อ่านไฟล์ไม่สำเร็จ: {e}")
+        st.stop()
 
-    st.subheader("📄 Preview Data")
+    st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} รายการ")
     st.dataframe(df.head(10), use_container_width=True)
 
-    st.divider()
+    # -----------------------------
+    # REQUIRED COLUMNS
+    # -----------------------------
+    required_cols = [
+        "lot_no",
+        "kanban_no",
+        "model_name",
+        "Harness_part_no",
+        "wire_number",
+        "wire_harness_code",
+        "MC_A",
+        "MC_B",
+        "Twist_MC",
+    ]
 
-    # =============================
-    # UPLOAD BUTTON (ที่หายไป)
-    # =============================
-    if st.button("🚀 Upload to Lot Master", type="primary"):
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"❌ ไฟล์ขาดคอลัมน์: {missing}")
+        st.stop()
 
-        with st.spinner("กำลังอัปโหลดข้อมูล..."):
-            success = 0
-            fail = 0
+    # -----------------------------
+    # CLEAN DATA
+    # -----------------------------
+    df = df.fillna("")
+    df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-            for _, r in df.iterrows():
+    # 🔥 ตัดซ้ำในไฟล์เองก่อน (เอาแถวล่างสุด = ล่าสุด)
+    df = df.drop_duplicates(subset=["kanban_no"], keep="last")
+
+    # -----------------------------
+    # CONFIRM
+    # -----------------------------
+    if not st.button("🚀 Upload to Supabase"):
+        st.stop()
+
+    # -----------------------------
+    # UPLOAD
+    # -----------------------------
+    success = 0
+    fail = 0
+    errors = []
+
+    with st.spinner("⏳ กำลังอัปโหลดข้อมูล..."):
+        for i, row in df.iterrows():
+            try:
                 payload = {
-                    "lot_no": str(r.get("lot_no")).strip(),
-                    "kanban_no": str(r.get("kanban_no")).strip(),
-                    "model_name": str(r.get("model_name")).strip(),
-                    "harness_part_no": str(r.get("Harness_part_no")).strip()
-                        if not pd.isna(r.get("Harness_part_no")) else None,
-                    "wire_number": str(r.get("wire_number")).strip()
-                        if not pd.isna(r.get("wire_number")) else None,
-                    "subpackage_number": str(r.get("subpackage_number")).strip()
-                        if not pd.isna(r.get("subpackage_number")) else None,
-                    "cable_name": str(r.get("Cable_name")).strip()
-                        if not pd.isna(r.get("Cable_name")) else None,
-                    "wire_length_mm": r.get("wire_length_mm"),
-                    "joint_a": r.get("joint_a"),
+                    "lot_no": str(row["lot_no"]).strip(),
+                    "kanban_no": str(row["kanban_no"]).strip(),
+                    "model_name": str(row["model_name"]).strip(),
+                    "harness_part_no": str(row["Harness_part_no"]).strip(),
+                    "wire_number": str(row["wire_number"]).strip(),
+                    "wire_harness_code": str(row["wire_harness_code"]).strip(),
+                    "mc_a": str(row["MC_A"]).strip(),
+                    "mc_b": str(row["MC_B"]).strip(),
+                    "twist_mc": str(row["Twist_MC"]).strip(),
+                    "updated_at": pd.Timestamp.now(tz="Asia/Bangkok").strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
                 }
 
-                try:
-                    supabase.table("lot_master")\
-                        .upsert(payload, on_conflict="kanban_no")\
-                        .execute()
-                    success += 1
-                except:
-                    fail += 1
+                # 🔥 UPSERT: ถ้าซ้ำ kanban_no → แทนของเก่า
+                supabase.table("lot_master").upsert(
+                    payload,
+                    on_conflict="kanban_no"
+                ).execute()
 
-        st.success(f"✅ Upload สำเร็จ {success} รายการ")
-        if fail:
-            st.error(f"❌ ผิดพลาด {fail} รายการ")
+                success += 1
 
+            except Exception as e:
+                fail += 1
+                errors.append(
+                    {
+                        "kanban_no": row.get("kanban_no"),
+                        "error": str(e)
+                    }
+                )
+
+    # -----------------------------
+    # RESULT
+    # -----------------------------
+    st.success(f"✅ Upload สำเร็จ {success} รายการ")
+    if fail:
+        st.error(f"❌ ผิดพลาด {fail} รายการ")
+        st.dataframe(pd.DataFrame(errors).head(20))
+
+    st.caption("📌 Logic: Duplicate kanban_no → keep latest record only")
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -508,6 +565,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
