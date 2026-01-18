@@ -63,6 +63,7 @@ mode = st.sidebar.radio(
         "Kanban Delivery Log",
         "Tracking Search",
         "Upload Lot Master",
+        "Part Tracking", 
     ]
 )
 
@@ -355,6 +356,80 @@ elif mode == "Upload Lot Master":
     if file:
         df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
         st.dataframe(df.head())
+
+# =====================================================
+# 6) PART TRACKING (WIRE / HARNESS)
+# =====================================================
+elif mode == "Part Tracking":
+
+    st.header("🧩 Part Tracking (Wire / Harness)")
+
+    c1, c2 = st.columns(2)
+    f_wire = c1.text_input("Wire Number")
+    f_part = c2.text_input("Harness Part No")
+
+    if not f_wire and not f_part:
+        st.info("กรุณาใส่ Wire Number หรือ Harness Part No อย่างน้อย 1 ช่อง")
+        st.stop()
+
+    with st.spinner("กำลังค้นหาข้อมูลจากฐานข้อมูล..."):
+        res = supabase.rpc(
+            "rpc_part_tracking",
+            {
+                "p_wire_number": f_wire or None,
+                "p_harness_part_no": f_part or None
+            }
+        ).execute()
+
+    df = pd.DataFrame(res.data)
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+        st.stop()
+
+    # =============================
+    # KPI
+    # =============================
+    total = len(df)
+    sent = (df["status"] == "Sent").sum()
+    not_sent = total - sent
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total", total)
+    k2.metric("✅ Sent", sent)
+    k3.metric("⏳ Not Sent", not_sent)
+
+    st.divider()
+
+    # =============================
+    # TIMEZONE FORMAT
+    # =============================
+    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+
+    # =============================
+    # DISPLAY TABLE
+    # =============================
+    st.dataframe(
+        df[
+            [
+                "kanban_no",
+                "lot_no",
+                "model_name",
+                "harness_part_no",
+                "wire_number",
+                "status",
+                "Delivered At (GMT+7)"
+            ]
+        ],
+        use_container_width=True,
+        height=600
+    )
+
+    st.caption(
+        f"📊 Source: rpc_part_tracking | "
+        f"Total = {total}"
+    )
+
 
 
 
