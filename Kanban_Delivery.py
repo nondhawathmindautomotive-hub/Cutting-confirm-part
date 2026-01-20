@@ -88,7 +88,7 @@ mode = st.sidebar.radio(
 )
 
 # =====================================================
-# 1) SCAN KANBAN (JOINT-AWARE / LONG TERM SAFE)
+# 1) SCAN KANBAN (WIRE HARNESS COMPLETE VERSION)
 # =====================================================
 if mode == "Scan Kanban":
 
@@ -99,17 +99,18 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        now_ts = pd.Timestamp.now(
-            tz="Asia/Bangkok"
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        # เวลาไทย
+        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
-        # -------------------------
-        # ตรวจว่ามี Kanban นี้จริงไหม
-        # -------------------------
-        base = (
+        # -------------------------------------------------
+        # 1) หา BASE ROW จาก kanban ที่ scan
+        # -------------------------------------------------
+        base_res = (
             supabase.table("lot_master")
             .select(
-                "kanban_no, model_name, lot_no, wire_number"
+                "kanban_no, model_name, lot_no, wire_number, wire_harness_code"
             )
             .eq("kanban_no", kanban)
             .limit(1)
@@ -117,53 +118,101 @@ if mode == "Scan Kanban":
             .data
         )
 
-        if not base:
+        if not base_res:
             st.session_state.msg = (
                 "error",
-                "❌ ไม่พบ Kanban นี้ใน Lot Master"
+                "❌ ไม่พบ Kanban ใน Lot Master"
             )
             st.session_state.scan = ""
             return
 
-        row = base[0]
+        base = base_res[0]
 
-        # -------------------------
-        # กันสแกนซ้ำ
-        # -------------------------
-        exist = (
-            supabase.table("kanban_delivery")
+        lot_no = norm(base["lot_no"])
+        model = norm(base["model_name"])
+        wire_number = norm(base.get("wire_number"))
+        harness_code = norm(base.get("wire_harness_code"))
+
+        if not harness_code:
+            st.session_state.msg = (
+                "error",
+                "❌ ไม่พบ wire_harness_code"
+            )
+            st.session_state.scan = ""
+            return
+
+        # -------------------------------------------------
+        # 2) ดึงทุก kanban ที่ lot + wire_harness_code เดียวกัน
+        # -------------------------------------------------
+        all_rows = (
+            supabase.table("lot_master")
             .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .limit(1)
+            .eq("lot_no", lot_no)
+            .eq("wire_harness_code", harness_code)
             .execute()
             .data
         )
 
-        if exist:
+        all_kanbans = [
+            norm(r["kanban_no"])
+            for r in all_rows
+        ]
+
+        if not all_kanbans:
             st.session_state.msg = (
-                "info",
-                "ℹ️ Kanban นี้ถูกสแกนแล้ว (Joint จะถูกนับครบทั้งชุด)"
+                "warning",
+                "⚠️ ไม่พบชุด wire_harness_code ที่ผูกกัน"
             )
             st.session_state.scan = ""
             return
 
-        # -------------------------
-        # INSERT เฉพาะใบที่สแกน
-        # -------------------------
-        payload = {
-            "kanban_no": kanban,
-            "model_name": row["model_name"],
-            "lot_no": row["lot_no"],
-            "wire_number": row.get("wire_number"),
-            "last_scanned_at": now_ts
+        # -------------------------------------------------
+        # 3) เช็คว่าใบไหนส่งไปแล้ว
+        # -------------------------------------------------
+        sent_rows = (
+            supabase.table("kanban_delivery")
+            .select("kanban_no")
+            .in_("kanban_no", all_kanbans)
+            .execute()
+            .data
+        )
+
+        sent_set = {
+            norm(r["kanban_no"])
+            for r in sent_rows
         }
 
-        supabase.table("kanban_delivery").insert(payload).execute()
+        # -------------------------------------------------
+        # 4) INSERT เฉพาะใบที่ยังไม่เคยส่ง
+        # -------------------------------------------------
+        to_insert = [
+            {
+                "kanban_no": k,
+                "model_name": model,
+                "lot_no": lot_no,
+                "wire_number": wire_number,
+                "last_scanned_at": now_ts
+            }
+            for k in all_kanbans
+            if k not in sent_set
+        ]
 
-        st.session_state.msg = (
-            "success",
-            "✅ Scan สำเร็จ (Joint set ถูกตัดครบทั้งชุด)"
-        )
+        if to_insert:
+            supabase.table("kanban_delivery") \
+                .insert(to_insert) \
+                .execute()
+
+            st.session_state.msg = (
+                "success",
+                f"✅ Completed {len(to_insert)} Kanban "
+                f"(Wire Harness: {harness_code})"
+            )
+        else:
+            st.session_state.msg = (
+                "info",
+                "ℹ️ ชุดนี้ถูกส่งครบแล้ว"
+            )
+
         st.session_state.scan = ""
 
     st.text_input(
@@ -176,6 +225,7 @@ if mode == "Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+
 
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
@@ -621,6 +671,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
