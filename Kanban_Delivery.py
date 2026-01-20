@@ -75,45 +75,29 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        # -------------------------
-        # CHECK KANBAN IN LOT MASTER
-        # -------------------------
-        base = (
-            supabase.table("lot_master")
-            .select(
-                "kanban_no, model_name, lot_no"
-            )
-            .eq("kanban_no", kanban)
-            .limit(1)
-            .execute()
-            .data
-        )
-
-        if not base:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
-            st.session_state.scan = ""
-            return
-
-        # -------------------------
-        # CALL RPC (JOINT + NON-JOINT SAFE)
-        # -------------------------
         try:
+            # ---------------------------------
+            # CALL RPC (RETURN INT)
+            # ---------------------------------
             res = supabase.rpc(
                 "rpc_complete_joint_by_kanban",
-                {"p_kanban_no": kanban}
+                {
+                    "p_kanban_no": kanban
+                }
             ).execute()
 
-            inserted = res.data[0] if res.data else 0
+            # 🔑 RPC นี้ RETURN เป็น int โดยตรง
+            completed = int(res.data)
 
-            if inserted > 0:
+            if completed > 0:
                 st.session_state.msg = (
                     "success",
-                    f"✅ COMPLETE อัตโนมัติ {inserted} วงจร (Joint / Single)"
+                    f"✅ COMPLETE สำเร็จ {completed} วงจร (Joint / Single)"
                 )
             else:
                 st.session_state.msg = (
-                    "info",
-                    "ℹ️ Kanban / Joint นี้ถูกส่งครบแล้ว"
+                    "warning",
+                    "⚠️ Kanban / Joint นี้ถูกส่งครบแล้ว"
                 )
 
         except Exception as e:
@@ -124,12 +108,18 @@ if mode == "Scan Kanban":
 
         st.session_state.scan = ""
 
+    # -----------------------------
+    # INPUT (AUTO CONFIRM)
+    # -----------------------------
     st.text_input(
         "Scan Kanban No.",
         key="scan",
         on_change=confirm_scan
     )
 
+    # -----------------------------
+    # MESSAGE
+    # -----------------------------
     if "msg" in st.session_state:
         t, m = st.session_state.msg
         getattr(st, t)(m)
@@ -579,6 +569,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
