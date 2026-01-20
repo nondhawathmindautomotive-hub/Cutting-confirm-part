@@ -224,8 +224,6 @@ if mode == "Scan Kanban":
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
-```
-
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
@@ -670,6 +668,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
