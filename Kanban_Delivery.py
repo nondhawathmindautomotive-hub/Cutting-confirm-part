@@ -75,12 +75,13 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
-
+        # -------------------------
+        # CHECK KANBAN IN LOT MASTER
+        # -------------------------
         base = (
             supabase.table("lot_master")
             .select(
-                "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
+                "kanban_no, model_name, lot_no"
             )
             .eq("kanban_no", kanban)
             .limit(1)
@@ -93,39 +94,33 @@ if mode == "Scan Kanban":
             st.session_state.scan = ""
             return
 
-        row = base[0]
-        model = norm(row["model_name"])
-        lot = norm(row["lot_no"])
-        wire_number = norm(row.get("wire_number"))
-        joint_a = norm(row.get("joint_a"))
-        joint_b = norm(row.get("joint_b"))
-
         # -------------------------
-        # CHECK EXIST
+        # CALL RPC (JOINT + NON-JOINT SAFE)
         # -------------------------
-        exist = (
-            supabase.table("kanban_delivery")
-            .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .execute()
-            .data
-        )
+        try:
+            res = supabase.rpc(
+                "rpc_complete_joint_by_kanban",
+                {"p_kanban_no": kanban}
+            ).execute()
 
-        payload = {
-            "kanban_no": kanban,
-            "model_name": model,
-            "lot_no": lot,
-            "wire_number": wire_number,
-            "last_scanned_at": now_ts
-        }
+            inserted = res.data[0] if res.data else 0
 
-        if exist:
-            supabase.table("kanban_delivery").update(payload)\
-                .eq("kanban_no", kanban).execute()
-            st.session_state.msg = ("success", "🔄 Scan ซ้ำ (อัปเดตเวลา)")
-        else:
-            supabase.table("kanban_delivery").insert(payload).execute()
-            st.session_state.msg = ("success", "✅ ส่ง Kanban สำเร็จ")
+            if inserted > 0:
+                st.session_state.msg = (
+                    "success",
+                    f"✅ COMPLETE อัตโนมัติ {inserted} วงจร (Joint / Single)"
+                )
+            else:
+                st.session_state.msg = (
+                    "info",
+                    "ℹ️ Kanban / Joint นี้ถูกส่งครบแล้ว"
+                )
+
+        except Exception as e:
+            st.session_state.msg = (
+                "error",
+                f"❌ RPC Error: {e}"
+            )
 
         st.session_state.scan = ""
 
@@ -584,6 +579,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
