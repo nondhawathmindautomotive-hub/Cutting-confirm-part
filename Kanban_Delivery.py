@@ -99,11 +99,15 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        # เวลาไทยจริง
-        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
+        # -------------------------
+        # เวลาไทยจริง (GMT+7)
+        # -------------------------
+        now_ts = pd.Timestamp.now(
+            tz="Asia/Bangkok"
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
         # -------------------------
-        # BASE ROW
+        # BASE ROW (KANBAN ที่สแกน)
         # -------------------------
         base_res = (
             supabase.table("lot_master")
@@ -117,7 +121,10 @@ if mode == "Scan Kanban":
         )
 
         if not base_res:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
+            st.session_state.msg = (
+                "error",
+                "❌ ไม่พบ Kanban ใน Lot Master"
+            )
             st.session_state.scan = ""
             return
 
@@ -126,7 +133,6 @@ if mode == "Scan Kanban":
         model = norm(base["model_name"])
         lot = norm(base["lot_no"])
         wire_number = norm(base.get("wire_number"))
-
         joint_a = norm(base.get("joint_a"))
         joint_b = norm(base.get("joint_b"))
 
@@ -144,28 +150,34 @@ if mode == "Scan Kanban":
                 "last_scanned_at": now_ts
             }
 
-            supabase.table("kanban_delivery")\
-                .upsert(payload, on_conflict="kanban_no")\
+            supabase.table("kanban_delivery") \
+                .upsert(payload, on_conflict="kanban_no") \
                 .execute()
 
-            st.session_state.msg = ("success", "✅ ส่ง Kanban สำเร็จ")
+            st.session_state.msg = (
+                "success",
+                "✅ ส่ง Kanban สำเร็จ"
+            )
             st.session_state.scan = ""
             return
 
         # =================================================
-        # CASE 2: JOINT CIRCUIT
+        # CASE 2: JOINT CIRCUIT (STRICT & SAFE)
         # =================================================
-        # 1) ดึงวงจรใน model + lot เดียวกัน
+
+        # 1) ดึงวงจรทั้งหมดใน model + lot เดียวกัน
         all_rows = (
             supabase.table("lot_master")
-            .select("kanban_no, joint_a, joint_b")
+            .select(
+                "kanban_no, joint_a, joint_b"
+            )
             .eq("model_name", model)
             .eq("lot_no", lot)
             .execute()
             .data
         )
 
-        # 2) คัดเฉพาะวงจรที่ joint ตรงตาม logic
+        # 2) คัดเฉพาะวงจรที่เป็น joint ชุดเดียวกันจริง
         joint_kanbans = [
             norm(r["kanban_no"])
             for r in all_rows
@@ -175,11 +187,14 @@ if mode == "Scan Kanban":
         joint_kanbans = list(set(joint_kanbans))
 
         if not joint_kanbans:
-            st.session_state.msg = ("warning", "⚠️ ไม่พบ Joint ที่ผูกกัน")
+            st.session_state.msg = (
+                "warning",
+                "⚠️ ไม่พบ Joint ที่ผูกกัน"
+            )
             st.session_state.scan = ""
             return
 
-        # 3) เช็คว่าอะไรส่งไปแล้ว
+        # 3) ตรวจสอบวงจรที่เคยส่งแล้ว
         sent_rows = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -188,9 +203,11 @@ if mode == "Scan Kanban":
             .data
         )
 
-        sent_set = {norm(x["kanban_no"]) for x in sent_rows}
+        sent_set = {
+            norm(x["kanban_no"]) for x in sent_rows
+        }
 
-        # 4) INSERT เฉพาะที่ยังไม่ส่ง (ไม่กระทบของเก่า)
+        # 4) INSERT เฉพาะที่ยังไม่เคยส่ง
         to_insert = [
             {
                 "kanban_no": k,
@@ -204,26 +221,39 @@ if mode == "Scan Kanban":
         ]
 
         if to_insert:
-            supabase.table("kanban_delivery").insert(to_insert).execute()
+            supabase.table("kanban_delivery") \
+                .insert(to_insert) \
+                .execute()
+
             st.session_state.msg = (
                 "success",
                 f"✅ Joint COMPLETE {len(to_insert)} วงจร"
             )
         else:
-            st.session_state.msg = ("info", "ℹ️ Joint นี้ถูกส่งครบแล้ว")
+            st.session_state.msg = (
+                "info",
+                "ℹ️ Joint นี้ถูกส่งครบแล้ว"
+            )
 
         st.session_state.scan = ""
 
+    # -------------------------
+    # INPUT SCAN
+    # -------------------------
     st.text_input(
         "Scan Kanban No.",
         key="scan",
         on_change=confirm_scan
     )
 
+    # -------------------------
+    # MESSAGE
+    # -------------------------
     if "msg" in st.session_state:
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
@@ -668,6 +698,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
