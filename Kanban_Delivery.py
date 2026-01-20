@@ -99,20 +99,15 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        # -------------------------
-        # เวลาไทยจริง (GMT+7)
-        # -------------------------
-        now_ts = pd.Timestamp.now(
-            tz="Asia/Bangkok"
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
 
-        # -------------------------
-        # BASE ROW (KANBAN ที่สแกน)
-        # -------------------------
+        # -------------------------------------------------
+        # 1) BASE ROW (KANBAN ที่ SCAN)
+        # -------------------------------------------------
         base_res = (
             supabase.table("lot_master")
             .select(
-                "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
+                "kanban_no, lot_no, model_name, wire_harness_code, wire_number, joint_a, joint_b"
             )
             .eq("kanban_no", kanban)
             .limit(1)
@@ -121,80 +116,71 @@ if mode == "Scan Kanban":
         )
 
         if not base_res:
-            st.session_state.msg = (
-                "error",
-                "❌ ไม่พบ Kanban ใน Lot Master"
-            )
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
             st.session_state.scan = ""
             return
 
         base = base_res[0]
 
+        lot   = norm(base["lot_no"])
         model = norm(base["model_name"])
-        lot = norm(base["lot_no"])
-        wire_number = norm(base.get("wire_number"))
-        joint_a = norm(base.get("joint_a"))
-        joint_b = norm(base.get("joint_b"))
+        whc   = norm(base["wire_harness_code"])
+        wire  = norm(base.get("wire_number"))
 
-        is_joint = bool(joint_a or joint_b)
-
-        # =================================================
-        # CASE 1: NON-JOINT (เดี่ยว)
-        # =================================================
-        if not is_joint:
-            payload = {
-                "kanban_no": kanban,
-                "model_name": model,
-                "lot_no": lot,
-                "wire_number": wire_number,
-                "last_scanned_at": now_ts
-            }
-
-            supabase.table("kanban_delivery") \
-                .upsert(payload, on_conflict="kanban_no") \
-                .execute()
-
-            st.session_state.msg = (
-                "success",
-                "✅ ส่ง Kanban สำเร็จ"
-            )
-            st.session_state.scan = ""
-            return
-
-        # =================================================
-        # CASE 2: JOINT CIRCUIT (STRICT & SAFE)
-        # =================================================
-
-        # 1) ดึงวงจรทั้งหมดใน model + lot เดียวกัน
-        all_rows = (
+        # -------------------------------------------------
+        # 2) ดึงข้อมูลเฉพาะ SCOPE เดียวกัน
+        # -------------------------------------------------
+        scope_rows = (
             supabase.table("lot_master")
-            .select(
-                "kanban_no, joint_a, joint_b"
-            )
-            .eq("model_name", model)
+            .select("kanban_no, joint_a, joint_b")
             .eq("lot_no", lot)
+            .eq("model_name", model)
+            .eq("wire_harness_code", whc)
             .execute()
             .data
         )
 
-        # 2) คัดเฉพาะวงจรที่เป็น joint ชุดเดียวกันจริง
-        joint_kanbans = [
-            norm(r["kanban_no"])
-            for r in all_rows
-            if match_joint(r, base)
-        ]
-
-        joint_kanbans = list(set(joint_kanbans))
-
-        if not joint_kanbans:
-            st.session_state.msg = (
-                "warning",
-                "⚠️ ไม่พบ Joint ที่ผูกกัน"
-            )
+        if not scope_rows:
+            st.session_state.msg = ("warning", "⚠️ ไม่พบข้อมูลใน scope")
             st.session_state.scan = ""
             return
 
-        # 3) ตรวจสอบวงจรที่เคยส่งแล้ว
+        # -------------------------------------------------
+        # 3) BUILD JOINT GRAPH (แบบง่าย ใช้งานยาว)
+        # -------------------------------------------------
+        def joints_of(row):
+            return {norm(row.get("joint_a")), norm(row.get("joint_b"))} - {""}
+
+        visited_kanban = set()
+        visited_joint  = set()
+
+        # จุดเริ่ม
+        visited_kanban.add(kanban)
+        visited_joint |= joints_of(base)
+
+        changed = True
+        while changed:
+            changed = False
+            for r in scope_rows:
+                k = norm(r["kanban_no"])
+                if k in visited_kanban:
+                    continue
+
+                r_joints = joints_of(r)
+                # ถ้ามี joint ใดเชื่อมถึง
+                if visited_joint & r_joints:
+                    visited_kanban.add(k)
+                    before = len(visited_joint)
+                    visited_joint |= r_joints
+                    if len(visited_joint) > before:
+                        changed = True
+                    changed = True
+
+        joint_kanbans = list(visited_kanban)
+
+        # -------------------------------------------------
+        # 4) CHECK SENT ALREADY
+        # -------------------------------------------------
         sent_rows = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -203,17 +189,17 @@ if mode == "Scan Kanban":
             .data
         )
 
-        sent_set = {
-            norm(x["kanban_no"]) for x in sent_rows
-        }
+        sent_set = {norm(x["kanban_no"]) for x in sent_rows}
 
-        # 4) INSERT เฉพาะที่ยังไม่เคยส่ง
+        # -------------------------------------------------
+        # 5) INSERT ONLY NEW (SAFE / NO IMPACT OLD)
+        # -------------------------------------------------
         to_insert = [
             {
                 "kanban_no": k,
-                "model_name": model,
                 "lot_no": lot,
-                "wire_number": wire_number,
+                "model_name": model,
+                "wire_number": wire,
                 "last_scanned_at": now_ts
             }
             for k in joint_kanbans
@@ -221,38 +207,27 @@ if mode == "Scan Kanban":
         ]
 
         if to_insert:
-            supabase.table("kanban_delivery") \
-                .insert(to_insert) \
-                .execute()
-
+            supabase.table("kanban_delivery").insert(to_insert).execute()
             st.session_state.msg = (
                 "success",
-                f"✅ Joint COMPLETE {len(to_insert)} วงจร"
+                f"✅ Joint COMPLETE {len(to_insert)} / {len(joint_kanbans)} ใบ"
             )
         else:
-            st.session_state.msg = (
-                "info",
-                "ℹ️ Joint นี้ถูกส่งครบแล้ว"
-            )
+            st.session_state.msg = ("info", "ℹ️ ชุดนี้ถูกส่งครบแล้ว")
 
         st.session_state.scan = ""
 
-    # -------------------------
-    # INPUT SCAN
-    # -------------------------
     st.text_input(
         "Scan Kanban No.",
         key="scan",
         on_change=confirm_scan
     )
 
-    # -------------------------
-    # MESSAGE
-    # -------------------------
     if "msg" in st.session_state:
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+
 
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
@@ -698,6 +673,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
