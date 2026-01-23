@@ -263,7 +263,7 @@ elif mode == "Lot Kanban Summary":
         st.stop()
 
     # ===============================
-    # 1️⃣ LOAD FROM VIEW (ของจริง)
+    # 1️⃣ LOAD FROM VIEW (FULL DATA FOR KPI)
     # ===============================
     q = supabase.table("v_lot_kanban_summary").select(
         """
@@ -279,6 +279,7 @@ elif mode == "Lot Kanban Summary":
         """
     ).eq("lot_no", f_lot)
 
+    # ❗ Filter เหล่านี้ต้องมีผลกับ KPI ด้วย
     if f_model:
         q = q.ilike("model_name", f"%{f_model}%")
     if f_harness:
@@ -287,17 +288,17 @@ elif mode == "Lot Kanban Summary":
         q = q.ilike("wire_number", f"%{f_wire}%")
 
     rows = q.execute().data
-    df = pd.DataFrame(rows)
+    df_all = pd.DataFrame(rows)
 
-    if df.empty:
+    if df_all.empty:
         st.warning("❌ ไม่พบข้อมูล")
         st.stop()
 
     # ===============================
-    # 2️⃣ KPI (มาจาก VIEW ตรง ๆ)
+    # 2️⃣ KPI (ใช้ df_all เท่านั้น ❗)
     # ===============================
-    total_qty = len(df)
-    sent_qty = (df["status"] == "SENT").sum()
+    total_qty = len(df_all)
+    sent_qty = (df_all["status"] == "SENT").sum()
     remain_qty = total_qty - sent_qty
 
     k1, k2, k3 = st.columns(3)
@@ -308,9 +309,9 @@ elif mode == "Lot Kanban Summary":
     st.divider()
 
     # ===============================
-    # 3️⃣ SEARCH (VIEW ONLY)
+    # 3️⃣ SEARCH (DISPLAY ONLY)
     # ===============================
-    df_view = df.copy()
+    df_view = df_all.copy()
 
     if search_text:
         key = search_text.lower()
@@ -326,7 +327,7 @@ elif mode == "Lot Kanban Summary":
         ]
 
     # ===============================
-    # 4️⃣ DISPLAY
+    # 4️⃣ DISPLAY (LIMIT HERE ONLY)
     # ===============================
     df_view = df_view.rename(
         columns={
@@ -676,6 +677,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
