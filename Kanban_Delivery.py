@@ -228,10 +228,7 @@ if mode == "Scan Kanban":
 
 
 # =====================================================
-# 📦 LOT KANBAN SUMMARY (SOURCE OF TRUTH = lot_master)
-# =====================================================
-# =====================================================
-# 📦 LOT KANBAN SUMMARY (SOURCE = v_lot_kanban_summary)
+# 📦 LOT KANBAN SUMMARY (RPC VERSION / SOURCE OF TRUTH)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
@@ -263,64 +260,58 @@ elif mode == "Lot Kanban Summary":
         st.info("กรุณาระบุ Lot No.")
         st.stop()
 
-    # ===============================
-    # 1️⃣ LOAD FULL DATA (❗ FIX HERE)
-    # ===============================
-    q = supabase.table("v_lot_kanban_summary").select(
-        """
-        kanban_no,
-        lot_no,
-        model_name,
-        wire_number,
-        wire_harness_code,
-        mc_a,
-        mc_b,
-        twist_mc,
-        status
-        """
-    ).eq("lot_no", f_lot)
+    # =================================================
+    # 1️⃣ KPI FROM RPC (NO LIMIT / FAST)
+    # =================================================
+    kpi_res = supabase.rpc(
+        "rpc_lot_kanban_summary_kpi",
+        {
+            "p_lot_no": f_lot,
+            "p_model": f_model or None,
+            "p_harness_code": f_harness or None,
+            "p_wire_number": f_wire or None,
+        }
+    ).execute()
 
-    # filter ที่ต้องมีผลกับ KPI
-    if f_model:
-        q = q.ilike("model_name", f"%{f_model}%")
-    if f_harness:
-        q = q.ilike("wire_harness_code", f"%{f_harness}%")
-    if f_wire:
-        q = q.ilike("wire_number", f"%{f_wire}%")
-
-    # 🔥 สำคัญที่สุด (แก้ limit 1000)
-    q = q.range(0, 10000)
-
-    rows = q.execute().data
-    df_all = pd.DataFrame(rows)
-
-    if df_all.empty:
-        st.warning("❌ ไม่พบข้อมูล")
+    if not kpi_res.data:
+        st.warning("❌ ไม่พบข้อมูล Lot นี้")
         st.stop()
 
-    # ===============================
-    # 2️⃣ KPI (ใช้ข้อมูลจริงทั้งหมด)
-    # ===============================
-    total_qty = len(df_all)
-    sent_qty = (df_all["status"] == "SENT").sum()
-    remain_qty = total_qty - sent_qty
+    kpi = kpi_res.data[0]
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total", total_qty)
-    k2.metric("✅ Sent", sent_qty)
-    k3.metric("⏳ Remaining", remain_qty)
+    k1.metric("📦 Total", kpi["total_qty"])
+    k2.metric("✅ Sent", kpi["sent_qty"])
+    k3.metric("⏳ Remaining", kpi["remaining_qty"])
 
     st.divider()
 
-    # ===============================
-    # 3️⃣ SEARCH (DISPLAY ONLY)
-    # ===============================
-    df_view = df_all.copy()
+    # =================================================
+    # 2️⃣ DETAIL TABLE FROM RPC
+    # =================================================
+    detail_res = supabase.rpc(
+        "rpc_lot_kanban_summary_detail",
+        {
+            "p_lot_no": f_lot,
+            "p_model": f_model or None,
+            "p_harness_code": f_harness or None,
+            "p_wire_number": f_wire or None,
+        }
+    ).execute()
 
+    df = pd.DataFrame(detail_res.data)
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+        st.stop()
+
+    # =================================================
+    # 3️⃣ SEARCH (CLIENT SIDE – VIEW ONLY)
+    # =================================================
     if search_text:
         key = search_text.lower()
-        df_view = df_view[
-            df_view.apply(
+        df = df[
+            df.apply(
                 lambda r: key in " ".join(
                     str(v).lower()
                     for v in r.values
@@ -330,34 +321,34 @@ elif mode == "Lot Kanban Summary":
             )
         ]
 
-    # ===============================
-    # 4️⃣ DISPLAY (LIMIT TABLE ONLY)
-    # ===============================
-    df_view = df_view.rename(
+    # =================================================
+    # 4️⃣ DISPLAY
+    # =================================================
+    df = df.rename(
         columns={
             "kanban_no": "Kanban No",
             "lot_no": "Lot",
             "model_name": "Model",
             "wire_number": "Wire No",
+            "cable_name": "Cable Name",
+            "wire_length_mm": "Wire Length (mm)",
+            "subpackage_number": "Subpackage",
             "wire_harness_code": "Harness Code",
-            "mc_a": "MC A",
-            "mc_b": "MC B",
-            "twist_mc": "Twist MC",
             "status": "Status",
         }
     )
 
     st.dataframe(
-        df_view[
+        df[
             [
                 "Lot",
                 "Kanban No",
                 "Model",
                 "Wire No",
+                "Cable Name",
+                "Wire Length (mm)",
+                "Subpackage",
                 "Harness Code",
-                "MC A",
-                "MC B",
-                "Twist MC",
                 "Status",
             ]
         ].head(show_limit),
@@ -367,7 +358,8 @@ elif mode == "Lot Kanban Summary":
     )
 
     st.caption(
-        "📊 Source: v_lot_kanban_summary (lot_master + kanban_delivery)"
+        "📊 Source of Truth: rpc_lot_kanban_summary_kpi + "
+        "rpc_lot_kanban_summary_detail"
     )
 
 
@@ -681,6 +673,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
