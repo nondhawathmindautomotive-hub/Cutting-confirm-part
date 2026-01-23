@@ -227,127 +227,115 @@ if mode == "Scan Kanban":
         del st.session_state.msg
 
 
-# ================================
+# =====================================================
 # 📦 LOT KANBAN SUMMARY (FINAL)
-# ================================
+# =====================================================
+elif mode == "Lot Kanban Summary":
 
-import pandas as pd
-import streamlit as st
+    st.subheader("📦 Lot Kanban Summary")
 
-st.subheader("📦 Lot Kanban Summary")
+    # ----------------
+    # Select Lot
+    # ----------------
+    selected_lot = st.text_input("Lot No.", value="260106")
 
-# ----------------
-# Select Lot
-# ----------------
-selected_lot = st.text_input("Lot No.", value="260106")
+    if not selected_lot:
+        st.stop()
 
-if not selected_lot:
-    st.stop()
+    # ================================
+    # 1) LOAD LOT MASTER (SOURCE OF TRUTH)
+    # ================================
+    lot_res = supabase.table("lot_master") \
+        .select(
+            "lot_no",
+            "wire_harness_code",
+            "cable_name",
+            "wire_length_mm",
+            "subpackage_number"
+        ) \
+        .eq("lot_no", selected_lot) \
+        .execute()
 
-# ================================
-# 1) LOAD LOT MASTER (SOURCE OF TRUTH)
-# ================================
-lot_res = supabase.table("lot_master") \
-    .select(
-        "lot_no",
-        "wire_harness_code",
-        "cable_name",
-        "wire_length_mm",
-        "subpackage_number"
-    ) \
-    .eq("lot_no", selected_lot) \
-    .execute()
+    df_lot = pd.DataFrame(lot_res.data)
 
-df_lot = pd.DataFrame(lot_res.data)
+    if df_lot.empty:
+        st.warning("❌ ไม่พบข้อมูลใน lot_master")
+        st.stop()
 
-if df_lot.empty:
-    st.warning("❌ ไม่พบข้อมูลใน lot_master")
-    st.stop()
-
-# 🔑 DEFINE SET KEY (1 ชุด = 1 wire_harness_code ต่อ lot)
-df_lot["SET_KEY"] = (
-    df_lot["lot_no"].astype(str)
-    + "|"
-    + df_lot["wire_harness_code"].astype(str)
-)
-
-# ================================
-# 2) LOAD KANBAN DELIVERY (SENT)
-# ================================
-sent_res = supabase.table("kanban_delivery") \
-    .select("lot_no, wire_harness_code") \
-    .eq("lot_no", selected_lot) \
-    .execute()
-
-df_sent = pd.DataFrame(sent_res.data)
-
-if not df_sent.empty:
-    df_sent["SET_KEY"] = (
-        df_sent["lot_no"].astype(str)
+    # 🔑 DEFINE SET KEY
+    df_lot["SET_KEY"] = (
+        df_lot["lot_no"].astype(str)
         + "|"
-        + df_sent["wire_harness_code"].astype(str)
+        + df_lot["wire_harness_code"].astype(str)
     )
-    sent_set_keys = df_sent["SET_KEY"].unique()
-else:
-    sent_set_keys = []
 
-# ================================
-# 3) KPI CALCULATION (CORRECT LOGIC)
-# ================================
-total_sets = df_lot["SET_KEY"].nunique()
-sent_sets = len(sent_set_keys)
-remaining_sets = total_sets - sent_sets
+    # ================================
+    # 2) LOAD KANBAN DELIVERY (SENT)
+    # ================================
+    sent_res = supabase.table("kanban_delivery") \
+        .select("lot_no, wire_harness_code") \
+        .eq("lot_no", selected_lot) \
+        .execute()
 
-# ================================
-# 4) SHOW KPI
-# ================================
-col1, col2, col3 = st.columns(3)
-col1.metric("📦 Total", total_sets)
-col2.metric("✅ Sent", sent_sets)
-col3.metric("⏳ Remaining", remaining_sets)
+    df_sent = pd.DataFrame(sent_res.data)
 
-# ================================
-# 5) BUILD SUMMARY TABLE (1 ROW = 1 SET)
-# ================================
-df_summary = (
-    df_lot
-    .drop_duplicates("SET_KEY")
-    .copy()
-)
-
-df_summary["Status"] = df_summary["SET_KEY"].apply(
-    lambda x: "COMPLETED" if x in sent_set_keys else "REMAINING"
-)
-
-# ================================
-# 6) SEARCH
-# ================================
-search = st.text_input("🔍 Search (Kanban / Wire / Model / Harness)")
-
-if search:
-    search = search.lower()
-    df_summary = df_summary[
-        df_summary.apply(
-            lambda r: search in " ".join(r.astype(str)).lower(),
-            axis=1
+    if not df_sent.empty:
+        df_sent["SET_KEY"] = (
+            df_sent["lot_no"].astype(str)
+            + "|"
+            + df_sent["wire_harness_code"].astype(str)
         )
-    ]
+        sent_set_keys = df_sent["SET_KEY"].unique()
+    else:
+        sent_set_keys = []
 
-# ================================
-# 7) DISPLAY TABLE
-# ================================
-st.dataframe(
-    df_summary[[
-        "lot_no",
-        "wire_harness_code",
-        "cable_name",
-        "wire_length_mm",
-        "subpackage_number",
-        "Status"
-    ]],
-    use_container_width=True,
-    hide_index=True
-)
+    # ================================
+    # 3) KPI
+    # ================================
+    total_sets = df_lot["SET_KEY"].nunique()
+    sent_sets = len(sent_set_keys)
+    remaining_sets = total_sets - sent_sets
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📦 Total", total_sets)
+    col2.metric("✅ Sent", sent_sets)
+    col3.metric("⏳ Remaining", remaining_sets)
+
+    # ================================
+    # 4) SUMMARY TABLE
+    # ================================
+    df_summary = df_lot.drop_duplicates("SET_KEY").copy()
+
+    df_summary["Status"] = df_summary["SET_KEY"].apply(
+        lambda x: "COMPLETED" if x in sent_set_keys else "REMAINING"
+    )
+
+    search = st.text_input("🔍 Search")
+
+    if search:
+        search = search.lower()
+        df_summary = df_summary[
+            df_summary.apply(
+                lambda r: search in " ".join(r.astype(str)).lower(),
+                axis=1
+            )
+        ]
+
+    st.dataframe(
+        df_summary[
+            [
+                "lot_no",
+                "wire_harness_code",
+                "cable_name",
+                "wire_length_mm",
+                "subpackage_number",
+                "Status"
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
+
 
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
@@ -687,6 +675,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
