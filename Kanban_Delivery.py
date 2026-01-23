@@ -230,6 +230,8 @@ if mode == "Scan Kanban":
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
+# 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH FROM LOT_MASTER)
+# =====================================================
 elif mode == "Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary")
@@ -253,13 +255,15 @@ elif mode == "Lot Kanban Summary":
         }[x]
     )
 
-    # ⛔ ต้องอยู่ตรงนี้เท่านั้น
+    # =============================
+    # LOT REQUIRED
+    # =============================
     if not f_lot:
         st.info("กรุณาใส่ Lot No.")
         st.stop()
 
     # =============================
-    # KPI
+    # KPI (SOURCE OF TRUTH)
     # =============================
     with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
         kpi_res = supabase.rpc(
@@ -289,7 +293,7 @@ elif mode == "Lot Kanban Summary":
     st.divider()
 
     # =============================
-    # DETAIL TABLE
+    # DETAIL TABLE (FROM LOT_MASTER)
     # =============================
     with st.spinner("กำลังโหลดรายการวงจร..."):
         res = supabase.rpc(
@@ -309,9 +313,15 @@ elif mode == "Lot Kanban Summary":
         st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
         st.stop()
 
+    # =============================
+    # FORMAT
+    # =============================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
     df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
 
+    # =============================
+    # DISPLAY TABLE
+    # =============================
     st.dataframe(
         df[
             [
@@ -319,6 +329,13 @@ elif mode == "Lot Kanban Summary":
                 "model_name",
                 "harness_part_no",
                 "wire_number",
+
+                # 🔥 เพิ่มคอลัมน์ตามที่ต้องการ
+                "cable_name",
+                "wire_length_mm",
+                "subpackage_number",
+                "wire_harness_code",
+
                 "Status",
                 "Delivered At (GMT+7)"
             ]
@@ -328,9 +345,10 @@ elif mode == "Lot Kanban Summary":
     )
 
     st.caption(
-        f"📊 Source: rpc_part_kpi + rpc_lot_kanban_circuits | "
+        f"📊 Source: lot_master (rpc_lot_kanban_circuits) | "
         f"Lot {f_lot} | Total จริง = {total_kanban}"
     )
+
 
 
 # =====================================================
@@ -671,6 +689,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
