@@ -476,14 +476,11 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER (BULK MERGE VERSION)
-# =====================================================
-# =====================================================
-# 5) UPLOAD LOT MASTER (BULK MERGE VERSION)
+# 5) UPLOAD LOT MASTER (REPLACE / MERGE VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Merge by kanban_no)")
+    st.header("🔐 Upload Lot Master (Replace / Merge)")
 
     # -----------------------------
     # PASSWORD
@@ -495,7 +492,7 @@ elif mode == "Upload Lot Master":
     # -----------------------------
     # FILE UPLOAD
     # -----------------------------
-    file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
+    file = st.file_uploader("📤 Upload CSV / Excel", ["csv", "xlsx"])
     if not file:
         st.stop()
 
@@ -515,12 +512,10 @@ elif mode == "Upload Lot Master":
     st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
-    # REQUIRED COLUMNS
+    # REQUIRED COLUMN (ขั้นต่ำ)
     # -----------------------------
-    required_cols = ["kanban_no", "MC_A", "MC_B", "Twist_MC"]
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.error(f"❌ ไฟล์ขาดคอลัมน์: {missing}")
+    if "kanban_no" not in df.columns:
+        st.error("❌ ต้องมีคอลัมน์ kanban_no อย่างน้อย")
         st.stop()
 
     # -----------------------------
@@ -529,22 +524,10 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # เอา kanban_no ซ้ำ → ใช้แถวล่างสุด
+    # ตัด kanban ซ้ำในไฟล์ (เก็บแถวล่างสุด)
     df = df.drop_duplicates(subset=["kanban_no"], keep="last")
 
-    # -----------------------------
-    # BUILD PAYLOAD
-    # -----------------------------
-    payload = []
-    for _, row in df.iterrows():
-        payload.append({
-            "kanban_no": row["kanban_no"],
-            "mc_a": str(row["MC_A"]).strip(),
-            "mc_b": str(row["MC_B"]).strip(),
-            "twist_mc": str(row["Twist_MC"]).strip(),
-        })
-
-    st.info(f"📦 Kanban ที่จะถูกพิจารณา: {len(payload)}")
+    st.info(f"🧹 หลังตัด kanban_no ซ้ำ เหลือ {len(df)} แถว")
 
     # -----------------------------
     # CONFIRM
@@ -553,20 +536,57 @@ elif mode == "Upload Lot Master":
         st.stop()
 
     # -----------------------------
-    # CALL RPC (BULK)
+    # UPLOAD → STAGING
     # -----------------------------
-    with st.spinner("⏳ กำลัง Merge ข้อมูล..."):
-        res = supabase.rpc(
-            "rpc_upload_lot_master_merge",
-            {"p_rows": payload}
+    with st.spinner("⏳ Uploading to staging..."):
+
+        supabase.table("lot_master_staging").delete().neq(
+            "kanban_no", "__dummy__"
         ).execute()
 
-    affected = res.data if res.data else 0
+        payload = []
+        for _, r in df.iterrows():
+            payload.append(
+                {
+                    "kanban_no": str(r.get("kanban_no", "")).strip(),
+                    "lot_no": str(r.get("lot_no", "")).strip(),
+                    "model_name": str(r.get("model_name", "")).strip(),
+                    "wire_number": str(r.get("wire_number", "")).strip(),
+                    "cable_name": str(r.get("cable_name", "")).strip(),
+                    "wire_length_mm": (
+                        float(r["wire_length_mm"])
+                        if str(r.get("wire_length_mm", "")).strip()
+                        else None
+                    ),
+                    "subpackage_number": str(r.get("subpackage_number", "")).strip(),
+                    "wire_harness_code": str(r.get("wire_harness_code", "")).strip(),
+                }
+            )
 
-    st.success(f"✅ สำเร็จ | Kanban ที่ถูกพิจารณา/อัปเดต: {affected}")
+        # batch insert
+        supabase.table("lot_master_staging").insert(payload).execute()
+
+    st.success("✅ Upload to staging สำเร็จ")
+
+    # -----------------------------
+    # MERGE (CALL SQL / RPC)
+    # -----------------------------
+    with st.spinner("🧠 Merging data (replace by better data)..."):
+
+        supabase.rpc(
+            "rpc_merge_lot_master"
+        ).execute()
+
+    st.success("🎉 Merge สำเร็จแล้ว")
+
+    # -----------------------------
+    # RESULT
+    # -----------------------------
     st.caption(
-        "📌 Rule: ไฟล์ใหม่มีค่า → แทนของเดิม | ไฟล์ใหม่ว่าง → ไม่แตะ"
+        "📌 Logic: kanban_no ซ้ำ → เก็บแถวที่ข้อมูลครบกว่า "
+        "+ ถ้าคะแนนเท่ากัน ข้อมูลใหม่ชนะ"
     )
+
 
 
 
@@ -672,6 +692,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
