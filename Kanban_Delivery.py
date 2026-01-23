@@ -317,7 +317,7 @@ elif mode == "Lot Kanban Summary":
     # FORMAT
     # =============================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
-    df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
+    df["Status"] = df["status"]
 
     # =============================
     # DISPLAY TABLE
@@ -689,6 +689,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
