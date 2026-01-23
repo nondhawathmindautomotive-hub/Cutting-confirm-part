@@ -230,6 +230,7 @@ if mode == "Scan Kanban":
 # =====================================================
 # 📦 LOT KANBAN SUMMARY (SOURCE OF TRUTH = lot_master)
 # =====================================================
+# =====================================================
 # 📦 LOT KANBAN SUMMARY (SOURCE = v_lot_kanban_summary)
 # =====================================================
 elif mode == "Lot Kanban Summary":
@@ -263,7 +264,7 @@ elif mode == "Lot Kanban Summary":
         st.stop()
 
     # ===============================
-    # 1️⃣ LOAD FROM VIEW (FULL DATA FOR KPI)
+    # 1️⃣ LOAD FULL DATA (❗ FIX HERE)
     # ===============================
     q = supabase.table("v_lot_kanban_summary").select(
         """
@@ -279,13 +280,16 @@ elif mode == "Lot Kanban Summary":
         """
     ).eq("lot_no", f_lot)
 
-    # ❗ Filter เหล่านี้ต้องมีผลกับ KPI ด้วย
+    # filter ที่ต้องมีผลกับ KPI
     if f_model:
         q = q.ilike("model_name", f"%{f_model}%")
     if f_harness:
         q = q.ilike("wire_harness_code", f"%{f_harness}%")
     if f_wire:
         q = q.ilike("wire_number", f"%{f_wire}%")
+
+    # 🔥 สำคัญที่สุด (แก้ limit 1000)
+    q = q.range(0, 10000)
 
     rows = q.execute().data
     df_all = pd.DataFrame(rows)
@@ -295,7 +299,7 @@ elif mode == "Lot Kanban Summary":
         st.stop()
 
     # ===============================
-    # 2️⃣ KPI (ใช้ df_all เท่านั้น ❗)
+    # 2️⃣ KPI (ใช้ข้อมูลจริงทั้งหมด)
     # ===============================
     total_qty = len(df_all)
     sent_qty = (df_all["status"] == "SENT").sum()
@@ -327,7 +331,7 @@ elif mode == "Lot Kanban Summary":
         ]
 
     # ===============================
-    # 4️⃣ DISPLAY (LIMIT HERE ONLY)
+    # 4️⃣ DISPLAY (LIMIT TABLE ONLY)
     # ===============================
     df_view = df_view.rename(
         columns={
@@ -677,6 +681,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
