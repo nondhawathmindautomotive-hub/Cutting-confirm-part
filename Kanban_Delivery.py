@@ -227,43 +227,48 @@ if mode == "Scan Kanban":
         del st.session_state.msg
 
 
-elif mode == "Lot Kanban Summary":
+# =====================================================
+# 📦 LOT KANBAN SUMMARY (FINAL / NO SQL JOIN)
+# =====================================================
+if mode == "Lot Kanban Summary":
 
     st.header("📦 Lot Kanban Summary")
 
     # ===============================
-    # FILTER
+    # FILTER ZONE
     # ===============================
     c1, c2, c3, c4 = st.columns(4)
-    f_lot = c1.text_input("Lot No.")
-    f_model = c2.text_input("Model")
-    f_harness = c3.text_input("Harness Code")
-    f_wire = c4.text_input("Wire / Part No.")
+
+    with c1:
+        f_lot = st.text_input("Lot No.")
+
+    with c2:
+        f_model = st.text_input("Model")
+
+    with c3:
+        f_harness = st.text_input("Harness Code")
+
+    with c4:
+        f_wire = st.text_input("Wire / Part No.")
 
     search_text = st.text_input(
-        "🔍 Search (Kanban / Wire / Model / Harness)"
+        "🔍 Search (Kanban / Wire / Model / Harness)",
+        placeholder="พิมพ์อะไรก็ได้ที่ต้องการค้นหา"
     )
 
     show_limit = st.selectbox(
-        "📊 Show rows", [50, 100, 300, 1000], index=1
+        "📊 Show rows",
+        [50, 100, 300, 1000],
+        index=3
     )
 
     st.divider()
 
     # ===============================
-    # LOAD LOT MASTER (SOURCE OF TRUTH)
+    # 1️⃣ LOAD LOT_MASTER (BASE TRUTH)
     # ===============================
     q = supabase.table("lot_master").select(
-        """
-        lot_no,
-        kanban_no,
-        model_name,
-        wire_number,
-        cable_name,
-        wire_length_mm,
-        subpackage_number,
-        wire_harness_code
-        """
+        "lot_no, kanban_no, model_name, wire_number, cable_name, wire_length_mm, subpackage_number, wire_harness_code"
     )
 
     if f_lot:
@@ -271,44 +276,52 @@ elif mode == "Lot Kanban Summary":
     if f_model:
         q = q.ilike("model_name", f"%{f_model}%")
     if f_harness:
-        q = q.eq("wire_harness_code", f_harness)
+        q = q.ilike("wire_harness_code", f"%{f_harness}%")
     if f_wire:
         q = q.ilike("wire_number", f"%{f_wire}%")
 
-    lot_df = pd.DataFrame(q.execute().data)
+    lot_rows = q.execute().data
 
-    if lot_df.empty:
-        st.warning("ไม่พบข้อมูลจาก Lot Master")
+    if not lot_rows:
+        st.warning("ไม่พบข้อมูล Lot Master")
         st.stop()
 
+    df_lot = pd.DataFrame(lot_rows)
+
     # ===============================
-    # LOAD DELIVERY STATUS
+    # 2️⃣ LOAD KANBAN_DELIVERY (SENT)
     # ===============================
-    sent_df = pd.DataFrame(
+    sent_rows = (
         supabase.table("kanban_delivery")
         .select("kanban_no, last_scanned_at")
+        .in_("kanban_no", df_lot["kanban_no"].tolist())
         .execute()
         .data
     )
 
+    df_sent = pd.DataFrame(sent_rows)
+
+    if not df_sent.empty:
+        df_sent = df_sent.drop_duplicates(subset=["kanban_no"])
+
     # ===============================
-    # MERGE (LEFT JOIN)
+    # 3️⃣ MERGE + STATUS
     # ===============================
-    df = lot_df.merge(
-        sent_df,
+    df = df_lot.merge(
+        df_sent,
         on="kanban_no",
         how="left"
     )
 
-    df["status"] = df["last_scanned_at"].apply(
+    df["Status"] = df["last_scanned_at"].apply(
         lambda x: "COMPLETED" if pd.notna(x) else "REMAINING"
     )
 
     # ===============================
-    # KPI (LOCKED)
+    # 4️⃣ KPI (LOCK FROM LOT_MASTER)
     # ===============================
-    total_qty = len(df)        # ✅ ต้องได้ 2037
-    sent_qty = (df["status"] == "COMPLETED").sum()
+    total_qty = len(df)
+    sent_qty = (df["Status"] == "COMPLETED").sum()
     remain_qty = total_qty - sent_qty
 
     k1, k2, k3 = st.columns(3)
@@ -319,39 +332,57 @@ elif mode == "Lot Kanban Summary":
     st.divider()
 
     # ===============================
-    # SEARCH
+    # 5️⃣ SEARCH (VIEW ONLY)
     # ===============================
+    df_view = df.copy()
+
     if search_text:
         key = search_text.lower()
-        df = df[
-            df.apply(
+        df_view = df_view[
+            df_view.apply(
                 lambda r: key in " ".join(
-                    str(v).lower() for v in r.values if pd.notna(v)
+                    str(v).lower()
+                    for v in r.values
+                    if pd.notna(v)
                 ),
-                axis=1
+                axis=1,
             )
         ]
 
     # ===============================
-    # DISPLAY
+    # 6️⃣ DISPLAY
     # ===============================
-    df = df.rename(columns={
-        "lot_no": "Lot",
-        "kanban_no": "Kanban No",
-        "model_name": "Model",
-        "wire_number": "Wire No",
-        "cable_name": "Cable Name",
-        "wire_length_mm": "Wire Length (mm)",
-        "subpackage_number": "Subpackage",
-        "wire_harness_code": "Harness Code",
-        "status": "Status",
-        "last_scanned_at": "Delivered At"
-    })
+    df_view = df_view.rename(
+        columns={
+            "lot_no": "Lot",
+            "kanban_no": "Kanban No",
+            "model_name": "Model",
+            "wire_number": "Wire No",
+            "cable_name": "Cable Name",
+            "wire_length_mm": "Wire Length (mm)",
+            "subpackage_number": "Subpackage",
+            "wire_harness_code": "Harness Code",
+            "last_scanned_at": "Delivered At",
+        }
+    )
 
     st.dataframe(
-        df.head(show_limit),
+        df_view[
+            [
+                "Lot",
+                "Kanban No",
+                "Model",
+                "Wire No",
+                "Cable Name",
+                "Wire Length (mm)",
+                "Subpackage",
+                "Harness Code",
+                "Status",
+                "Delivered At",
+            ]
+        ].head(show_limit),
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
 
@@ -693,6 +724,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
