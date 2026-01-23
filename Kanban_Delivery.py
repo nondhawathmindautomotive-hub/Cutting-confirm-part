@@ -461,11 +461,12 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER (PRODUCTION VERSION)
+# 5) UPLOAD LOT MASTER (KANBAN MERGE VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Latest Only)")
+    st.header("🔐 Upload Lot Master (Merge by kanban_no)")
+    st.caption("อ้างอิง kanban_no เป็นหลัก | Upload ซ้ำได้ | ไม่ทับข้อมูลเดิม")
 
     # -----------------------------
     # PASSWORD
@@ -522,44 +523,49 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # 🔥 ตัดซ้ำในไฟล์เองก่อน (เอาแถวล่างสุด = ล่าสุด)
+    # 🔥 ตัดซ้ำในไฟล์ (ยึด kanban_no แถวล่างสุด)
     df = df.drop_duplicates(subset=["kanban_no"], keep="last")
 
     # -----------------------------
     # CONFIRM
     # -----------------------------
-    if not st.button("🚀 Upload to Supabase"):
+    if not st.button("🚀 Upload & Merge"):
         st.stop()
 
     # -----------------------------
-    # UPLOAD
+    # UPLOAD (RPC MERGE)
     # -----------------------------
     success = 0
     fail = 0
     errors = []
 
-    with st.spinner("⏳ กำลังอัปโหลดข้อมูล..."):
-        for i, row in df.iterrows():
-            try:
-                payload = {
-                    "lot_no": str(row["lot_no"]).strip(),
-                    "kanban_no": str(row["kanban_no"]).strip(),
-                    "model_name": str(row["model_name"]).strip(),
-                    "harness_part_no": str(row["Harness_part_no"]).strip(),
-                    "wire_number": str(row["wire_number"]).strip(),
-                    "wire_harness_code": str(row["wire_harness_code"]).strip(),
-                    "mc_a": str(row["MC_A"]).strip(),
-                    "mc_b": str(row["MC_B"]).strip(),
-                    "twist_mc": str(row["Twist_MC"]).strip(),
-                    "updated_at": pd.Timestamp.now(tz="Asia/Bangkok").strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    ),
-                }
+    def clean(v):
+        v = str(v).strip()
+        return v if v != "" else None
 
-                # 🔥 UPSERT: ถ้าซ้ำ kanban_no → แทนของเก่า
-                supabase.table("lot_master").upsert(
-                    payload,
-                    on_conflict="kanban_no"
+    with st.spinner("⏳ กำลัง Merge ข้อมูลด้วย kanban_no ..."):
+        for i, row in df.iterrows():
+            if not row["kanban_no"]:
+                fail += 1
+                errors.append(
+                    {"row": i + 1, "error": "kanban_no ว่าง"}
+                )
+                continue
+
+            try:
+                supabase.rpc(
+                    "rpc_merge_lot_master_by_kanban",
+                    {
+                        "p_kanban_no": clean(row["kanban_no"]),
+                        "p_lot_no": clean(row["lot_no"]),
+                        "p_model_name": clean(row["model_name"]),
+                        "p_harness_part_no": clean(row["Harness_part_no"]),
+                        "p_wire_number": clean(row["wire_number"]),
+                        "p_wire_harness_code": clean(row["wire_harness_code"]),
+                        "p_mc_a": clean(row["MC_A"]),
+                        "p_mc_b": clean(row["MC_B"]),
+                        "p_twist_mc": clean(row["Twist_MC"]),
+                    }
                 ).execute()
 
                 success += 1
@@ -576,12 +582,17 @@ elif mode == "Upload Lot Master":
     # -----------------------------
     # RESULT
     # -----------------------------
-    st.success(f"✅ Upload สำเร็จ {success} รายการ")
+    st.success(f"✅ Merge สำเร็จ {success} รายการ")
+
     if fail:
         st.error(f"❌ ผิดพลาด {fail} รายการ")
-        st.dataframe(pd.DataFrame(errors).head(20))
+        st.dataframe(pd.DataFrame(errors).head(20), use_container_width=True)
 
-    st.caption("📌 Logic: Duplicate kanban_no → keep latest record only")
+    st.caption(
+        "📌 Logic: ใช้ kanban_no เป็นหลัก | "
+        "ถ้ามีแล้วจะเติมเฉพาะ field ที่ยังว่าง | "
+        "ไม่ overwrite ข้อมูลเดิม"
+    )
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -685,50 +696,4 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
