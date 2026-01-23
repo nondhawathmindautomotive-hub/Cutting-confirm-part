@@ -461,12 +461,12 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER (KANBAN MERGE VERSION)
+# 5) UPLOAD LOT MASTER (BULK MERGE VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Merge by kanban_no)")
-    st.caption("อ้างอิง kanban_no เป็นหลัก | Upload ซ้ำได้ | ไม่ทับข้อมูลเดิม")
+    st.header("🔐 Upload Lot Master (Bulk Merge)")
+    st.caption("kanban_no เป็นหลัก | Upload ซ้ำได้ | เร็วระดับ Production")
 
     # -----------------------------
     # PASSWORD
@@ -523,76 +523,65 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # 🔥 ตัดซ้ำในไฟล์ (ยึด kanban_no แถวล่างสุด)
+    # ตัดซ้ำในไฟล์ (ยึด kanban_no แถวล่างสุด)
     df = df.drop_duplicates(subset=["kanban_no"], keep="last")
 
     # -----------------------------
     # CONFIRM
     # -----------------------------
-    if not st.button("🚀 Upload & Merge"):
+    if not st.button("🚀 Upload & Bulk Merge"):
         st.stop()
 
     # -----------------------------
-    # UPLOAD (RPC MERGE)
+    # PREPARE BULK PAYLOAD
     # -----------------------------
-    success = 0
-    fail = 0
-    errors = []
-
     def clean(v):
         v = str(v).strip()
         return v if v != "" else None
 
-    with st.spinner("⏳ กำลัง Merge ข้อมูลด้วย kanban_no ..."):
-        for i, row in df.iterrows():
-            if not row["kanban_no"]:
-                fail += 1
-                errors.append(
-                    {"row": i + 1, "error": "kanban_no ว่าง"}
-                )
-                continue
-
-            try:
-                supabase.rpc(
-                    "rpc_merge_lot_master_by_kanban",
-                    {
-                        "p_kanban_no": clean(row["kanban_no"]),
-                        "p_lot_no": clean(row["lot_no"]),
-                        "p_model_name": clean(row["model_name"]),
-                        "p_harness_part_no": clean(row["Harness_part_no"]),
-                        "p_wire_number": clean(row["wire_number"]),
-                        "p_wire_harness_code": clean(row["wire_harness_code"]),
-                        "p_mc_a": clean(row["MC_A"]),
-                        "p_mc_b": clean(row["MC_B"]),
-                        "p_twist_mc": clean(row["Twist_MC"]),
-                    }
-                ).execute()
-
-                success += 1
-
-            except Exception as e:
-                fail += 1
-                errors.append(
-                    {
-                        "kanban_no": row.get("kanban_no"),
-                        "error": str(e)
-                    }
-                )
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "kanban_no": clean(row["kanban_no"]),
+                "lot_no": clean(row["lot_no"]),
+                "model_name": clean(row["model_name"]),
+                "harness_part_no": clean(row["Harness_part_no"]),
+                "wire_number": clean(row["wire_number"]),
+                "wire_harness_code": clean(row["wire_harness_code"]),
+                "mc_a": clean(row["MC_A"]),
+                "mc_b": clean(row["MC_B"]),
+                "twist_mc": clean(row["Twist_MC"]),
+            }
+        )
 
     # -----------------------------
-    # RESULT
+    # BULK RPC CALL (🔥 เร็ว)
     # -----------------------------
-    st.success(f"✅ Merge สำเร็จ {success} รายการ")
+    with st.spinner("⏳ กำลัง Bulk Merge ข้อมูล..."):
+        try:
+            result = supabase.rpc(
+                "rpc_merge_lot_master_bulk",
+                {"p_rows": rows}
+            ).execute()
 
-    if fail:
-        st.error(f"❌ ผิดพลาด {fail} รายการ")
-        st.dataframe(pd.DataFrame(errors).head(20), use_container_width=True)
+            inserted = result.data[0]["inserted"]
+            updated = result.data[0]["updated"]
+
+            st.success(
+                f"✅ สำเร็จ | Inserted: {inserted} | Updated: {updated}"
+            )
+
+        except Exception as e:
+            st.error(f"❌ Bulk merge ล้มเหลว: {e}")
 
     st.caption(
-        "📌 Logic: ใช้ kanban_no เป็นหลัก | "
-        "ถ้ามีแล้วจะเติมเฉพาะ field ที่ยังว่าง | "
+        "📌 Logic: เรียก RPC ครั้งเดียว | "
+        "kanban_no เป็นหลัก | "
+        "เติมเฉพาะ field ที่ว่าง | "
         "ไม่ overwrite ข้อมูลเดิม"
     )
+
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -696,4 +685,5 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
