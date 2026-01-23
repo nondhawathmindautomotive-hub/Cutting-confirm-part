@@ -228,7 +228,7 @@ if mode == "Scan Kanban":
 
 
 # =====================================================
-# 📦 LOT KANBAN SUMMARY (RPC VERSION / SOURCE OF TRUTH)
+# 📦 LOT KANBAN SUMMARY (RPC + TIME)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
@@ -248,8 +248,7 @@ elif mode == "Lot Kanban Summary":
         f_wire = st.text_input("Wire / Part No.")
 
     search_text = st.text_input(
-        "🔍 Search (Kanban / Wire / Model / Harness)",
-        placeholder="พิมพ์อะไรก็ได้ที่ต้องการค้นหา"
+        "🔍 Search (Kanban / Wire / Model / Harness)"
     )
 
     show_limit = st.selectbox("📊 Show rows", [50, 100, 300, 1000], index=3)
@@ -261,9 +260,9 @@ elif mode == "Lot Kanban Summary":
         st.stop()
 
     # =================================================
-    # 1️⃣ KPI FROM RPC (NO LIMIT / FAST)
+    # 1️⃣ KPI
     # =================================================
-    kpi_res = supabase.rpc(
+    kpi = supabase.rpc(
         "rpc_lot_kanban_summary_kpi",
         {
             "p_lot_no": f_lot,
@@ -271,13 +270,7 @@ elif mode == "Lot Kanban Summary":
             "p_harness_code": f_harness or None,
             "p_wire_number": f_wire or None,
         }
-    ).execute()
-
-    if not kpi_res.data:
-        st.warning("❌ ไม่พบข้อมูล Lot นี้")
-        st.stop()
-
-    kpi = kpi_res.data[0]
+    ).execute().data[0]
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Total", kpi["total_qty"])
@@ -287,9 +280,9 @@ elif mode == "Lot Kanban Summary":
     st.divider()
 
     # =================================================
-    # 2️⃣ DETAIL TABLE FROM RPC
+    # 2️⃣ DETAIL
     # =================================================
-    detail_res = supabase.rpc(
+    res = supabase.rpc(
         "rpc_lot_kanban_summary_detail",
         {
             "p_lot_no": f_lot,
@@ -299,14 +292,19 @@ elif mode == "Lot Kanban Summary":
         }
     ).execute()
 
-    df = pd.DataFrame(detail_res.data)
+    df = pd.DataFrame(res.data)
 
     if df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
+        st.warning("❌ ไม่พบข้อมูล")
         st.stop()
 
     # =================================================
-    # 3️⃣ SEARCH (CLIENT SIDE – VIEW ONLY)
+    # 3️⃣ TIMEZONE → GMT+7
+    # =================================================
+    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+
+    # =================================================
+    # 4️⃣ SEARCH (VIEW)
     # =================================================
     if search_text:
         key = search_text.lower()
@@ -322,7 +320,7 @@ elif mode == "Lot Kanban Summary":
         ]
 
     # =================================================
-    # 4️⃣ DISPLAY
+    # 5️⃣ DISPLAY
     # =================================================
     df = df.rename(
         columns={
@@ -350,17 +348,18 @@ elif mode == "Lot Kanban Summary":
                 "Subpackage",
                 "Harness Code",
                 "Status",
+                "Delivered At (GMT+7)",
             ]
         ].head(show_limit),
         use_container_width=True,
         hide_index=True,
-        height=600
+        height=650
     )
 
     st.caption(
-        "📊 Source of Truth: rpc_lot_kanban_summary_kpi + "
-        "rpc_lot_kanban_summary_detail"
+        "📊 Source: Lot Master + Kanban Delivery (RPC, Timezone GMT+7)"
     )
+
 
 
 # =====================================================
@@ -673,6 +672,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
