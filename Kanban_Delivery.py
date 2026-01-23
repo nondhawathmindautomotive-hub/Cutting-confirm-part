@@ -228,111 +228,166 @@ if mode == "Scan Kanban":
 
 
 # =====================================================
-# 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
+# LOT KANBAN SUMMARY - COMPLETE / SAFE / LONG TERM
 # =====================================================
-# 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
-# =====================================================
-elif mode == "Lot Kanban Summary":
 
-    st.header("📊 Lot Kanban Summary")
+st.subheader("📦 Lot Kanban Summary")
 
-    # =============================
-    # FILTER
-    # =============================
-    c1, c2, c3, c4 = st.columns(4)
-    f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
-    f_model = c2.text_input("Model")
-    f_wire = c3.text_input("Wire Number")
-    f_part = c4.text_input("Harness Part No")
+# ===============================
+# FILTER ZONE
+# ===============================
 
-    f_status = st.selectbox(
-        "Status",
-        ["ALL", "SENT", "REMAIN"],
-        format_func=lambda x: {
-            "ALL": "📦 ทั้งหมด",
-            "SENT": "✅ ส่งแล้ว",
-            "REMAIN": "⏳ ยังไม่ส่ง"
-        }[x]
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    search_text = st.text_input(
+        "🔍 Search (Kanban / Wire / Harness)",
+        placeholder="เช่น 1633961 หรือ G1003A",
     )
 
-    # ⛔ ต้องอยู่ตรงนี้เท่านั้น
-    if not f_lot:
-        st.info("กรุณาใส่ Lot No.")
-        st.stop()
-
-    # =============================
-    # KPI
-    # =============================
-    with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
-        kpi_res = supabase.rpc(
-            "rpc_part_kpi",
-            {
-                "p_lot_no": f_lot.strip(),
-                "p_wire_number": f_wire.strip() or None,
-                "p_harness_part_no": f_part.strip() or None
-            }
-        ).execute()
-
-    if not kpi_res.data:
-        st.warning("ไม่พบข้อมูล")
-        st.stop()
-
-    kpi = kpi_res.data[0]
-
-    total_kanban = int(kpi["total_kanban"])
-    sent_kanban = int(kpi["sent_kanban"])
-    remaining_kanban = int(kpi["remaining_kanban"])
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total Kanban", total_kanban)
-    k2.metric("✅ Sent", sent_kanban)
-    k3.metric("⏳ Remaining", remaining_kanban)
-
-    st.divider()
-
-    # =============================
-    # DETAIL TABLE
-    # =============================
-    with st.spinner("กำลังโหลดรายการวงจร..."):
-        res = supabase.rpc(
-            "rpc_lot_kanban_circuits",
-            {
-                "p_lot_no": f_lot.strip(),
-                "p_model": f_model.strip() or None,
-                "p_status": f_status,
-                "p_wire_number": f_wire.strip() or None,
-                "p_harness_part_no": f_part.strip() or None
-            }
-        ).execute()
-
-    df = safe_df(res.data)
-
-    if df.empty:
-        st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
-        st.stop()
-
-    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
-    df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
-
-    st.dataframe(
-        df[
-            [
-                "kanban_no",
-                "model_name",
-                "harness_part_no",
-                "wire_number",
-                "Status",
-                "Delivered At (GMT+7)"
-            ]
-        ],
-        use_container_width=True,
-        height=650
+with col2:
+    status_filter = st.selectbox(
+        "📌 Status",
+        ["ALL", "COMPLETED", "REMAINING"],
     )
 
-    st.caption(
-        f"📊 Source: rpc_part_kpi + rpc_lot_kanban_circuits | "
-        f"Lot {f_lot} | Total จริง = {total_kanban}"
+with col3:
+    show_limit = st.selectbox(
+        "📊 Show rows",
+        [50, 100, 300, 1000],
+        index=1,
     )
+
+# ===============================
+# CALL RPC (READ ONLY)
+# ===============================
+
+res = supabase.rpc(
+    "rpc_lot_kanban_circuits",
+    {
+        "p_lot_no": lot_no,
+        "p_model": model_name,
+        "p_from": date_from,
+        "p_to": date_to,
+        "p_status": status_filter,
+    },
+).execute()
+
+if not res.data:
+    st.warning("ไม่พบข้อมูลจาก lot master")
+    st.stop()
+
+df = pd.DataFrame(res.data)
+
+# ===============================
+# SAFE NORMALIZATION
+# ===============================
+
+# Status
+if "status" not in df.columns:
+    df["status"] = "UNKNOWN"
+
+# Delivered time (safe timezone convert)
+if "delivered_at" in df.columns:
+    df["delivered_at"] = (
+        pd.to_datetime(df["delivered_at"], errors="coerce", utc=True)
+        .dt.tz_convert("Asia/Bangkok")
+    )
+else:
+    df["delivered_at"] = pd.NaT
+
+# ===============================
+# SEARCH FILTER
+# ===============================
+
+if search_text:
+    keyword = search_text.lower().strip()
+
+    df = df[
+        df.apply(
+            lambda r: keyword in " ".join(
+                str(v).lower()
+                for v in r.values
+                if pd.notna(v)
+            ),
+            axis=1,
+        )
+    ]
+
+# ===============================
+# STATUS FILTER
+# ===============================
+
+if status_filter != "ALL":
+    df = df[df["status"] == status_filter]
+
+# ===============================
+# SUMMARY ZONE
+# ===============================
+
+total_qty = len(df)
+sent_qty = len(df[df["status"] == "COMPLETED"])
+remain_qty = total_qty - sent_qty
+
+c1, c2, c3 = st.columns(3)
+
+c1.metric("📦 Total", total_qty)
+c2.metric("✅ Sent", sent_qty)
+c3.metric("⏳ Remaining", remain_qty)
+
+# ===============================
+# FINAL COLUMN CONTROL
+# ===============================
+
+expected_columns = [
+    "lot_no",
+    "kanban_no",
+    "model_name",
+    "wire_number",
+    "cable_name",
+    "wire_length_mm",
+    "subpackage_number",
+    "wire_harness_code",
+    "status",
+    "delivered_at",
+]
+
+available_columns = [
+    col for col in expected_columns
+    if col in df.columns
+]
+
+df = df[available_columns].head(show_limit)
+
+# ===============================
+# RENAME FOR DISPLAY
+# ===============================
+
+df = df.rename(
+    columns={
+        "lot_no": "Lot",
+        "kanban_no": "Kanban No",
+        "model_name": "Model",
+        "wire_number": "Wire No",
+        "cable_name": "Cable Name",
+        "wire_length_mm": "Wire Length (mm)",
+        "subpackage_number": "Subpackage",
+        "wire_harness_code": "Harness Code",
+        "status": "Status",
+        "delivered_at": "Delivered At (GMT+7)",
+    }
+)
+
+# ===============================
+# DISPLAY
+# ===============================
+
+st.dataframe(
+    df,
+    use_container_width=True,
+    hide_index=True,
+)
+
 
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
@@ -672,6 +727,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
