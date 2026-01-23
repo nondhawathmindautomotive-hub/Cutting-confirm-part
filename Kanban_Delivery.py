@@ -321,8 +321,8 @@ if mode == "Lot Kanban Summary":
     # ===============================
     # 4️⃣ KPI (CORRECT BY KANBAN)
     # ===============================
-    total_qty = df["Kanban No"].nunique()
-    sent_qty = df[df["Status"] == "COMPLETED"]["Kanban No"].nunique()
+    total_qty = df["kanban_no"].nunique()
+    sent_qty = df[df["Status"] == "COMPLETED"]["kanban_no"].nunique()
     remain_qty = total_qty - sent_qty
 
     k1, k2, k3 = st.columns(3)
@@ -723,6 +723,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
