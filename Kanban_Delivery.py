@@ -228,7 +228,7 @@ if mode == "Scan Kanban":
 
 
 # =====================================================
-# 📦 LOT KANBAN SUMMARY (SAFE / NO ERROR)
+# 📦 LOT KANBAN SUMMARY (LOCK KPI FROM LOT_MASTER)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
@@ -237,29 +237,29 @@ elif mode == "Lot Kanban Summary":
     # ===============================
     # FILTER ZONE
     # ===============================
-    f1, f2, f3, f4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
 
-    with f1:
-        f_lot_no = st.text_input("Lot No.")
+    with c1:
+        f_lot = st.text_input("Lot No.")
 
-    with f2:
+    with c2:
         f_model = st.text_input("Model")
 
-    with f3:
+    with c3:
         f_harness = st.text_input("Harness Code")
 
-    with f4:
+    with c4:
         f_wire = st.text_input("Wire / Part No.")
 
-    f5, f6, f7 = st.columns(3)
+    c5, c6, c7 = st.columns(3)
 
-    with f5:
+    with c5:
         date_from = st.date_input("From Date", value=None)
 
-    with f6:
+    with c6:
         date_to = st.date_input("To Date", value=None)
 
-    with f7:
+    with c7:
         status_filter = st.selectbox(
             "Status",
             ["ALL", "COMPLETED", "REMAINING"],
@@ -267,66 +267,75 @@ elif mode == "Lot Kanban Summary":
 
     search_text = st.text_input(
         "🔍 Search (Kanban / Wire / Model / Harness)",
-        placeholder="พิมพ์อะไรก็ได้ที่ต้องการค้นหา",
+        placeholder="พิมพ์อะไรก็ได้ที่ต้องการค้นหา"
     )
 
     show_limit = st.selectbox(
         "📊 Show rows",
         [50, 100, 300, 1000],
-        index=1,
+        index=1
     )
 
     st.divider()
 
     # ===============================
-    # CALL RPC (SAFE PARAM)
+    # CALL RPC (READ ONLY)
     # ===============================
-    try:
-        res = supabase.rpc(
-            "rpc_lot_kanban_summary_safe",
-            {
-                "p_lot_no": f_lot_no.strip() or None,
-                "p_model": f_model.strip() or None,
-                "p_harness_code": f_harness.strip() or None,
-                "p_wire": f_wire.strip() or None,
-                "p_from": str(date_from) if date_from else None,
-                "p_to": str(date_to) if date_to else None,
-                "p_status": status_filter,
-            },
-        ).execute()
-    except Exception as e:
-        st.error("❌ RPC Error")
-        st.code(str(e))
-        st.stop()
+    res = supabase.rpc(
+        "rpc_lot_kanban_circuits",
+        {
+            "p_lot_no": f_lot or None,
+            "p_model": f_model or None,
+            "p_harness_code": f_harness or None,
+            "p_wire": f_wire or None,
+            "p_from": str(date_from) if date_from else None,
+            "p_to": str(date_to) if date_to else None,
+            "p_status": None,  # KPI lock
+        }
+    ).execute()
 
-    df = safe_df(res.data)
-
-    if df.empty:
-        st.warning("ไม่พบข้อมูล")
+    if not res.data:
+        st.warning("ไม่พบข้อมูลจาก Lot Master")
         st.stop()
 
     # ===============================
-    # SAFE COLUMN NORMALIZE
+    # BASE DATA (DO NOT TOUCH)
     # ===============================
-    if "status" not in df.columns:
-        df["status"] = "UNKNOWN"
+    df_base = pd.DataFrame(res.data)
 
-    if "delivered_at" in df.columns:
-        df["delivered_at"] = (
-            pd.to_datetime(df["delivered_at"], errors="coerce", utc=True)
+    if "status" not in df_base.columns:
+        df_base["status"] = "REMAINING"
+
+    if "delivered_at" in df_base.columns:
+        df_base["delivered_at"] = (
+            pd.to_datetime(df_base["delivered_at"], errors="coerce", utc=True)
             .dt.tz_convert("Asia/Bangkok")
         )
-    else:
-        df["delivered_at"] = pd.NaT
 
     # ===============================
-    # GLOBAL SEARCH
+    # KPI (LOCKED FROM LOT MASTER)
     # ===============================
+    total_qty = len(df_base)      # ✅ ต้องได้ 2037
+    sent_qty = (df_base["status"] == "COMPLETED").sum()
+    remain_qty = total_qty - sent_qty
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Total", total_qty)
+    k2.metric("✅ Sent", sent_qty)
+    k3.metric("⏳ Remaining", remain_qty)
+
+    st.divider()
+
+    # ===============================
+    # VIEW DATA
+    # ===============================
+    df_view = df_base.copy()
+
     if search_text:
-        kw = search_text.lower().strip()
-        df = df[
-            df.apply(
-                lambda r: kw in " ".join(
+        key = search_text.lower().strip()
+        df_view = df_view[
+            df_view.apply(
+                lambda r: key in " ".join(
                     str(v).lower()
                     for v in r.values
                     if pd.notna(v)
@@ -335,30 +344,13 @@ elif mode == "Lot Kanban Summary":
             )
         ]
 
-    # ===============================
-    # STATUS FILTER (DOUBLE SAFE)
-    # ===============================
     if status_filter != "ALL":
-        df = df[df["status"] == status_filter]
+        if status_filter == "COMPLETED":
+            df_view = df_view[df_view["status"] == "COMPLETED"]
+        else:
+            df_view = df_view[df_view["status"] != "COMPLETED"]
 
-    # ===============================
-    # KPI
-    # ===============================
-    total = len(df)
-    sent = len(df[df["status"] == "COMPLETED"])
-    remain = total - sent
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total", total)
-    k2.metric("✅ Sent", sent)
-    k3.metric("⏳ Remaining", remain)
-
-    st.divider()
-
-    # ===============================
-    # COLUMN CONTROL
-    # ===============================
-    expected_cols = [
+    expected_columns = [
         "lot_no",
         "kanban_no",
         "model_name",
@@ -371,9 +363,10 @@ elif mode == "Lot Kanban Summary":
         "delivered_at",
     ]
 
-    df = df[[c for c in expected_cols if c in df.columns]]
+    df_view = df_view[[c for c in expected_columns if c in df_view.columns]]
+    df_view = df_view.head(show_limit)
 
-    df = df.rename(
+    df_view = df_view.rename(
         columns={
             "lot_no": "Lot",
             "kanban_no": "Kanban No",
@@ -388,19 +381,10 @@ elif mode == "Lot Kanban Summary":
         }
     )
 
-    # ===============================
-    # DISPLAY
-    # ===============================
     st.dataframe(
-        df.head(show_limit),
+        df_view,
         use_container_width=True,
         hide_index=True,
-        height=650,
-    )
-
-    st.caption(
-        "📊 Source: rpc_lot_kanban_summary_safe | "
-        "Lot Master + Kanban Delivery"
     )
 
 
@@ -742,6 +726,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
