@@ -230,7 +230,7 @@ if mode == "Scan Kanban":
 # =====================================================
 # 📦 LOT KANBAN SUMMARY (SOURCE OF TRUTH = lot_master)
 # =====================================================
-# 📦 LOT KANBAN SUMMARY (RPC VERSION / SOURCE OF TRUTH)
+# 📦 LOT KANBAN SUMMARY (SINGLE RPC VERSION)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
@@ -240,21 +240,18 @@ elif mode == "Lot Kanban Summary":
     # FILTER
     # -----------------------
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        f_lot = st.text_input("Lot No.")
-    with c2:
-        f_model = st.text_input("Model")
-    with c3:
-        f_harness = st.text_input("Harness Code")
-    with c4:
-        f_wire = st.text_input("Wire / Part No.")
+    f_lot = c1.text_input("Lot No.")
+    f_model = c2.text_input("Model")
+    f_harness = c3.text_input("Harness Code")
+    f_wire = c4.text_input("Wire / Part No.")
 
     search_text = st.text_input(
-        "🔍 Search (Kanban / Wire / Model / Harness)",
-        placeholder="พิมพ์อะไรก็ได้ที่ต้องการค้นหา"
+        "🔍 Search (Kanban / Wire / Model / Harness)"
     )
 
-    show_limit = st.selectbox("📊 Show rows", [50, 100, 300, 1000], index=3)
+    show_limit = st.selectbox(
+        "📊 Show rows", [50, 100, 300, 1000], index=3
+    )
 
     st.divider()
 
@@ -263,10 +260,10 @@ elif mode == "Lot Kanban Summary":
         st.stop()
 
     # =================================================
-    # 1️⃣ KPI FROM RPC (NO LIMIT / FAST)
+    # RPC CALL (ONE SHOT)
     # =================================================
-    kpi_res = supabase.rpc(
-        "rpc_lot_kanban_summary_kpi",
+    res = supabase.rpc(
+        "rpc_lot_kanban_summary_all",
         {
             "p_lot_no": f_lot,
             "p_model": f_model or None,
@@ -275,40 +272,26 @@ elif mode == "Lot Kanban Summary":
         }
     ).execute()
 
-    if not kpi_res.data:
-        st.warning("❌ ไม่พบข้อมูล Lot นี้")
+    df = pd.DataFrame(res.data)
+
+    if df.empty:
+        st.warning("❌ ไม่พบข้อมูล")
         st.stop()
 
-    kpi = kpi_res.data[0]
+    # =================================================
+    # KPI (FROM FIRST ROW)
+    # =================================================
+    kpi = df.iloc[0]
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total", kpi["total_qty"])
-    k2.metric("✅ Sent", kpi["sent_qty"])
-    k3.metric("⏳ Remaining", kpi["remaining_qty"])
+    k1.metric("📦 Total", int(kpi["total_qty"]))
+    k2.metric("✅ Sent", int(kpi["sent_qty"]))
+    k3.metric("⏳ Remaining", int(kpi["remaining_qty"]))
 
     st.divider()
 
     # =================================================
-    # 2️⃣ DETAIL TABLE FROM RPC
-    # =================================================
-    detail_res = supabase.rpc(
-        "rpc_lot_kanban_summary_detail",
-        {
-            "p_lot_no": f_lot,
-            "p_model": f_model or None,
-            "p_harness_code": f_harness or None,
-            "p_wire_number": f_wire or None,
-        }
-    ).execute()
-
-    df = pd.DataFrame(detail_res.data)
-
-    if df.empty:
-        st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
-
-    # =================================================
-    # 3️⃣ SEARCH (CLIENT SIDE – VIEW ONLY)
+    # SEARCH (VIEW ONLY)
     # =================================================
     if search_text:
         key = search_text.lower()
@@ -324,7 +307,7 @@ elif mode == "Lot Kanban Summary":
         ]
 
     # =================================================
-    # 4️⃣ DISPLAY
+    # DISPLAY
     # =================================================
     df = df.rename(
         columns={
@@ -360,9 +343,9 @@ elif mode == "Lot Kanban Summary":
     )
 
     st.caption(
-        "📊 Source of Truth: rpc_lot_kanban_summary_kpi + "
-        "rpc_lot_kanban_summary_detail"
+        "📊 Source of Truth: rpc_lot_kanban_summary_all (Single DB Call)"
     )
+
 
 # =====================================================
 # 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
@@ -702,6 +685,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
