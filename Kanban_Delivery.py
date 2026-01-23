@@ -463,10 +463,16 @@ elif mode == "Tracking Search":
 # =====================================================
 # 5) UPLOAD LOT MASTER (BULK MERGE VERSION)
 # =====================================================
+# =====================================================
+# 5) UPLOAD LOT MASTER (LATEST BULK ENRICH VERSION)
+# =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Bulk Merge)")
-    st.caption("kanban_no เป็นหลัก | Upload ซ้ำได้ | เร็วระดับ Production")
+    st.header("🔐 Upload Lot Master (Bulk Enrich by kanban_no)")
+    st.caption(
+        "✔ kanban_no เป็นหลัก | ✔ เติมเฉพาะช่องที่ว่าง | "
+        "✔ ไม่กระทบข้อมูลเดิม | ✔ Bulk เร็วระดับ Production"
+    )
 
     # -----------------------------
     # PASSWORD
@@ -498,15 +504,10 @@ elif mode == "Upload Lot Master":
     st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
-    # REQUIRED COLUMNS
+    # REQUIRED COLUMNS (ขั้นต่ำที่ใช้ enrich)
     # -----------------------------
     required_cols = [
-        "lot_no",
         "kanban_no",
-        "model_name",
-        "Harness_part_no",
-        "wire_number",
-        "wire_harness_code",
         "MC_A",
         "MC_B",
         "Twist_MC",
@@ -523,13 +524,13 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # ตัดซ้ำในไฟล์ (ยึด kanban_no แถวล่างสุด)
+    # ตัดซ้ำในไฟล์เอง (ยึด kanban_no แถวล่างสุด)
     df = df.drop_duplicates(subset=["kanban_no"], keep="last")
 
     # -----------------------------
     # CONFIRM
     # -----------------------------
-    if not st.button("🚀 Upload & Bulk Merge"):
+    if not st.button("🚀 Upload & Enrich"):
         st.stop()
 
     # -----------------------------
@@ -541,46 +542,49 @@ elif mode == "Upload Lot Master":
 
     rows = []
     for _, row in df.iterrows():
+        if not row["kanban_no"]:
+            continue
+
         rows.append(
             {
                 "kanban_no": clean(row["kanban_no"]),
-                "lot_no": clean(row["lot_no"]),
-                "model_name": clean(row["model_name"]),
-                "harness_part_no": clean(row["Harness_part_no"]),
-                "wire_number": clean(row["wire_number"]),
-                "wire_harness_code": clean(row["wire_harness_code"]),
-                "mc_a": clean(row["MC_A"]),
-                "mc_b": clean(row["MC_B"]),
-                "twist_mc": clean(row["Twist_MC"]),
+                "mc_a": clean(row.get("MC_A")),
+                "mc_b": clean(row.get("MC_B")),
+                "twist_mc": clean(row.get("Twist_MC")),
             }
         )
 
+    if not rows:
+        st.warning("⚠️ ไม่มีข้อมูล kanban_no ที่ใช้ได้")
+        st.stop()
+
     # -----------------------------
-    # BULK RPC CALL (🔥 เร็ว)
+    # BULK RPC CALL
     # -----------------------------
-    with st.spinner("⏳ กำลัง Bulk Merge ข้อมูล..."):
+    with st.spinner("⏳ กำลัง Enrich ข้อมูล (Bulk)..."):
         try:
-            result = supabase.rpc(
-                "rpc_merge_lot_master_bulk",
+            res = supabase.rpc(
+                "rpc_enrich_lot_master",
                 {"p_rows": rows}
             ).execute()
 
-            inserted = result.data[0]["inserted"]
-            updated = result.data[0]["updated"]
+            affected = res.data[0]["affected"] if res.data else 0
 
             st.success(
-                f"✅ สำเร็จ | Inserted: {inserted} | Updated: {updated}"
+                f"✅ สำเร็จ | Kanban ที่ถูกพิจารณา/เติมข้อมูล: {affected}"
             )
 
         except Exception as e:
-            st.error(f"❌ Bulk merge ล้มเหลว: {e}")
+            st.error(f"❌ Bulk enrich ล้มเหลว: {e}")
+            st.stop()
 
     st.caption(
-        "📌 Logic: เรียก RPC ครั้งเดียว | "
-        "kanban_no เป็นหลัก | "
-        "เติมเฉพาะ field ที่ว่าง | "
-        "ไม่ overwrite ข้อมูลเดิม"
+        "📌 Logic: kanban_no เป็น Primary Key | "
+        "coalesce(nullif(old,''), new) | "
+        "เติมเฉพาะช่องว่าง | "
+        "RPC call เดียว"
     )
+
 
 
 # =====================================================
@@ -685,5 +689,6 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
