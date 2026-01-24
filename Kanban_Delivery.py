@@ -48,30 +48,6 @@ def norm_lot(x):
         .replace("-", "")
         .strip()
     )
-def match_joint(row, base):
-    """
-    base = แถวที่ scan
-    row  = แถว candidate
-    """
-    ja = norm(base.get("joint_a"))
-    jb = norm(base.get("joint_b"))
-
-    r_ja = norm(row.get("joint_a"))
-    r_jb = norm(row.get("joint_b"))
-
-    # มี A + B → ต้องตรงทั้งคู่
-    if ja and jb:
-        return r_ja == ja and r_jb == jb
-
-    # มีเฉพาะ A
-    if ja:
-        return r_ja == ja
-
-    # มีเฉพาะ B
-    if jb:
-        return r_jb == jb
-
-    return False
 
 # =====================================================
 # SIDEBAR
@@ -88,7 +64,7 @@ mode = st.sidebar.radio(
 )
 
 # =====================================================
-# 1) SCAN KANBAN (WIRE HARNESS COMPLETE VERSION)
+# 1) SCAN KANBAN
 # =====================================================
 if mode == "Scan Kanban":
 
@@ -99,18 +75,12 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        # เวลาไทย
-        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
 
-        # -------------------------------------------------
-        # 1) หา BASE ROW จาก kanban ที่ scan
-        # -------------------------------------------------
-        base_res = (
+        base = (
             supabase.table("lot_master")
             .select(
-                "kanban_no, model_name, lot_no, wire_number, wire_harness_code"
+                "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
             )
             .eq("kanban_no", kanban)
             .limit(1)
@@ -118,100 +88,44 @@ if mode == "Scan Kanban":
             .data
         )
 
-        if not base_res:
-            st.session_state.msg = (
-                "error",
-                "❌ ไม่พบ Kanban ใน Lot Master"
-            )
+        if not base:
+            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
             st.session_state.scan = ""
             return
 
-        base = base_res[0]
+        row = base[0]
+        model = norm(row["model_name"])
+        lot = norm(row["lot_no"])
+        wire_number = norm(row.get("wire_number"))
+        joint_a = norm(row.get("joint_a"))
+        joint_b = norm(row.get("joint_b"))
 
-        lot_no = norm(base["lot_no"])
-        model = norm(base["model_name"])
-        wire_number = norm(base.get("wire_number"))
-        harness_code = norm(base.get("wire_harness_code"))
-
-        if not harness_code:
-            st.session_state.msg = (
-                "error",
-                "❌ ไม่พบ wire_harness_code"
-            )
-            st.session_state.scan = ""
-            return
-
-        # -------------------------------------------------
-        # 2) ดึงทุก kanban ที่ lot + wire_harness_code เดียวกัน
-        # -------------------------------------------------
-        all_rows = (
-            supabase.table("lot_master")
-            .select("kanban_no")
-            .eq("lot_no", lot_no)
-            .eq("wire_harness_code", harness_code)
-            .execute()
-            .data
-        )
-
-        all_kanbans = [
-            norm(r["kanban_no"])
-            for r in all_rows
-        ]
-
-        if not all_kanbans:
-            st.session_state.msg = (
-                "warning",
-                "⚠️ ไม่พบชุด wire_harness_code ที่ผูกกัน"
-            )
-            st.session_state.scan = ""
-            return
-
-        # -------------------------------------------------
-        # 3) เช็คว่าใบไหนส่งไปแล้ว
-        # -------------------------------------------------
-        sent_rows = (
+        # -------------------------
+        # CHECK EXIST
+        # -------------------------
+        exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
-            .in_("kanban_no", all_kanbans)
+            .eq("kanban_no", kanban)
             .execute()
             .data
         )
 
-        sent_set = {
-            norm(r["kanban_no"])
-            for r in sent_rows
+        payload = {
+            "kanban_no": kanban,
+            "model_name": model,
+            "lot_no": lot,
+            "wire_number": wire_number,
+            "last_scanned_at": now_ts
         }
 
-        # -------------------------------------------------
-        # 4) INSERT เฉพาะใบที่ยังไม่เคยส่ง
-        # -------------------------------------------------
-        to_insert = [
-            {
-                "kanban_no": k,
-                "model_name": model,
-                "lot_no": lot_no,
-                "wire_number": wire_number,
-                "last_scanned_at": now_ts
-            }
-            for k in all_kanbans
-            if k not in sent_set
-        ]
-
-        if to_insert:
-            supabase.table("kanban_delivery") \
-                .insert(to_insert) \
-                .execute()
-
-            st.session_state.msg = (
-                "success",
-                f"✅ Completed {len(to_insert)} Kanban "
-                f"(Wire Harness: {harness_code})"
-            )
+        if exist:
+            supabase.table("kanban_delivery").update(payload)\
+                .eq("kanban_no", kanban).execute()
+            st.session_state.msg = ("success", "🔄 Scan ซ้ำ (อัปเดตเวลา)")
         else:
-            st.session_state.msg = (
-                "info",
-                "ℹ️ ชุดนี้ถูกส่งครบแล้ว"
-            )
+            supabase.table("kanban_delivery").insert(payload).execute()
+            st.session_state.msg = ("success", "✅ ส่ง Kanban สำเร็จ")
 
         st.session_state.scan = ""
 
@@ -226,140 +140,110 @@ if mode == "Scan Kanban":
         getattr(st, t)(m)
         del st.session_state.msg
 
-
 # =====================================================
-# 📦 LOT KANBAN SUMMARY (RPC + TIME)
+# 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
 # =====================================================
 elif mode == "Lot Kanban Summary":
 
-    st.header("📦 Lot Kanban Summary")
+    st.header("📊 Lot Kanban Summary")
 
-    # -----------------------
+    # =============================
     # FILTER
-    # -----------------------
+    # =============================
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        f_lot = st.text_input("Lot No.")
-    with c2:
-        f_model = st.text_input("Model")
-    with c3:
-        f_harness = st.text_input("Harness Code")
-    with c4:
-        f_wire = st.text_input("Wire / Part No.")
+    f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
+    f_model = c2.text_input("Model")
+    f_wire = c3.text_input("Wire Number")
+    f_part = c4.text_input("Harness Part No")
 
-    search_text = st.text_input(
-        "🔍 Search (Kanban / Wire / Model / Harness)"
+    f_status = st.selectbox(
+        "Status",
+        ["ALL", "SENT", "REMAIN"],
+        format_func=lambda x: {
+            "ALL": "📦 ทั้งหมด",
+            "SENT": "✅ ส่งแล้ว",
+            "REMAIN": "⏳ ยังไม่ส่ง"
+        }[x]
     )
 
-    show_limit = st.selectbox("📊 Show rows", [50, 100, 300, 1000], index=3)
-
-    st.divider()
-
+    # ⛔ ต้องอยู่ตรงนี้เท่านั้น
     if not f_lot:
-        st.info("กรุณาระบุ Lot No.")
+        st.info("กรุณาใส่ Lot No.")
         st.stop()
 
-    # =================================================
-    # 1️⃣ KPI
-    # =================================================
-    kpi = supabase.rpc(
-        "rpc_lot_kanban_summary_kpi",
-        {
-            "p_lot_no": f_lot,
-            "p_model": f_model or None,
-            "p_harness_code": f_harness or None,
-            "p_wire_number": f_wire or None,
-        }
-    ).execute().data[0]
+    # =============================
+    # KPI
+    # =============================
+    with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
+        kpi_res = supabase.rpc(
+            "rpc_part_kpi",
+            {
+                "p_lot_no": f_lot.strip(),
+                "p_wire_number": f_wire.strip() or None,
+                "p_harness_part_no": f_part.strip() or None
+            }
+        ).execute()
+
+    if not kpi_res.data:
+        st.warning("ไม่พบข้อมูล")
+        st.stop()
+
+    kpi = kpi_res.data[0]
+
+    total_kanban = int(kpi["total_kanban"])
+    sent_kanban = int(kpi["sent_kanban"])
+    remaining_kanban = int(kpi["remaining_kanban"])
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total", kpi["total_qty"])
-    k2.metric("✅ Sent", kpi["sent_qty"])
-    k3.metric("⏳ Remaining", kpi["remaining_qty"])
+    k1.metric("📦 Total Kanban", total_kanban)
+    k2.metric("✅ Sent", sent_kanban)
+    k3.metric("⏳ Remaining", remaining_kanban)
 
     st.divider()
 
-    # =================================================
-    # 2️⃣ DETAIL
-    # =================================================
-    res = supabase.rpc(
-        "rpc_lot_kanban_summary_detail",
-        {
-            "p_lot_no": f_lot,
-            "p_model": f_model or None,
-            "p_harness_code": f_harness or None,
-            "p_wire_number": f_wire or None,
-        }
-    ).execute()
+    # =============================
+    # DETAIL TABLE
+    # =============================
+    with st.spinner("กำลังโหลดรายการวงจร..."):
+        res = supabase.rpc(
+            "rpc_lot_kanban_circuits",
+            {
+                "p_lot_no": f_lot.strip(),
+                "p_model": f_model.strip() or None,
+                "p_status": f_status,
+                "p_wire_number": f_wire.strip() or None,
+                "p_harness_part_no": f_part.strip() or None
+            }
+        ).execute()
 
-    df = pd.DataFrame(res.data)
+    df = safe_df(res.data)
 
     if df.empty:
-        st.warning("❌ ไม่พบข้อมูล")
+        st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
         st.stop()
 
-    # =================================================
-    # 3️⃣ TIMEZONE → GMT+7
-    # =================================================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
-
-    # =================================================
-    # 4️⃣ SEARCH (VIEW)
-    # =================================================
-    if search_text:
-        key = search_text.lower()
-        df = df[
-            df.apply(
-                lambda r: key in " ".join(
-                    str(v).lower()
-                    for v in r.values
-                    if pd.notna(v)
-                ),
-                axis=1
-            )
-        ]
-
-    # =================================================
-    # 5️⃣ DISPLAY
-    # =================================================
-    df = df.rename(
-        columns={
-            "kanban_no": "Kanban No",
-            "lot_no": "Lot",
-            "model_name": "Model",
-            "wire_number": "Wire No",
-            "cable_name": "Cable Name",
-            "wire_length_mm": "Wire Length (mm)",
-            "subpackage_number": "Subpackage",
-            "wire_harness_code": "Harness Code",
-            "status": "Status",
-        }
-    )
+    df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
 
     st.dataframe(
         df[
             [
-                "Lot",
-                "Kanban No",
-                "Model",
-                "Wire No",
-                "Cable Name",
-                "Wire Length (mm)",
-                "Subpackage",
-                "Harness Code",
+                "kanban_no",
+                "model_name",
+                "harness_part_no",
+                "wire_number",
                 "Status",
-                "Delivered At (GMT+7)",
+                "Delivered At (GMT+7)"
             ]
-        ].head(show_limit),
+        ],
         use_container_width=True,
-        hide_index=True,
         height=650
     )
 
     st.caption(
-        "📊 Source: Lot Master + Kanban Delivery (RPC, Timezone GMT+7)"
+        f"📊 Source: rpc_part_kpi + rpc_lot_kanban_circuits | "
+        f"Lot {f_lot} | Total จริง = {total_kanban}"
     )
-
 
 
 # =====================================================
@@ -476,13 +360,11 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER (REPLACE / MERGE VERSION)
-# =====================================================
-# 5) UPLOAD LOT MASTER (SAFE REPLACEMENT VERSION)
+# 5) UPLOAD LOT MASTER (PRODUCTION VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Safe Replace)")
+    st.header("🔐 Upload Lot Master (Latest Only)")
 
     # -----------------------------
     # PASSWORD
@@ -510,7 +392,8 @@ elif mode == "Upload Lot Master":
         st.error(f"❌ อ่านไฟล์ไม่สำเร็จ: {e}")
         st.stop()
 
-    st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} แถว")
+    st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} รายการ")
+    st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
     # REQUIRED COLUMNS
@@ -538,23 +421,8 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # 🔥 ตัดแถวซ้ำในไฟล์ → เลือกแถวที่ข้อมูลครบที่สุด
-    def completeness_score(r):
-        return sum(
-            1 for c in required_cols
-            if str(r.get(c, "")).strip() != ""
-        )
-
-    df["_score"] = df.apply(completeness_score, axis=1)
-    df = (
-        df.sort_values("_score", ascending=False)
-          .drop_duplicates(subset=["kanban_no"], keep="first")
-          .drop(columns="_score")
-    )
-
-    st.info(f"🧹 หลังตัดซ้ำ เหลือ {len(df)} kanban")
-
-    st.dataframe(df.head(10), use_container_width=True)
+    # 🔥 ตัดซ้ำในไฟล์เองก่อน (เอาแถวล่างสุด = ล่าสุด)
+    df = df.drop_duplicates(subset=["kanban_no"], keep="last")
 
     # -----------------------------
     # CONFIRM
@@ -563,80 +431,56 @@ elif mode == "Upload Lot Master":
         st.stop()
 
     # -----------------------------
-    # LOAD EXISTING DATA (เฉพาะ kanban ที่ชน)
-    # -----------------------------
-    kanban_list = df["kanban_no"].tolist()
-
-    existing = (
-        supabase.table("lot_master")
-        .select(
-            "kanban_no, lot_no, model_name, harness_part_no, wire_number, wire_harness_code, mc_a, mc_b, twist_mc"
-        )
-        .in_("kanban_no", kanban_list)
-        .execute()
-        .data
-    )
-
-    existing_map = {r["kanban_no"]: r for r in existing}
-
-    # -----------------------------
-    # UPLOAD (SAFE UPSERT)
+    # UPLOAD
     # -----------------------------
     success = 0
-    skipped = 0
+    fail = 0
+    errors = []
 
     with st.spinner("⏳ กำลังอัปโหลดข้อมูล..."):
-        for _, row in df.iterrows():
+        for i, row in df.iterrows():
+            try:
+                payload = {
+                    "lot_no": str(row["lot_no"]).strip(),
+                    "kanban_no": str(row["kanban_no"]).strip(),
+                    "model_name": str(row["model_name"]).strip(),
+                    "harness_part_no": str(row["Harness_part_no"]).strip(),
+                    "wire_number": str(row["wire_number"]).strip(),
+                    "wire_harness_code": str(row["wire_harness_code"]).strip(),
+                    "mc_a": str(row["MC_A"]).strip(),
+                    "mc_b": str(row["MC_B"]).strip(),
+                    "twist_mc": str(row["Twist_MC"]).strip(),
+                    "updated_at": pd.Timestamp.now(tz="Asia/Bangkok").strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
+                }
 
-            new_score = completeness_score(row)
-            old = existing_map.get(row["kanban_no"])
+                # 🔥 UPSERT: ถ้าซ้ำ kanban_no → แทนของเก่า
+                supabase.table("lot_master").upsert(
+                    payload,
+                    on_conflict="kanban_no"
+                ).execute()
 
-            old_score = 0
-            if old:
-                old_score = sum(
-                    1 for v in old.values()
-                    if v not in ("", None)
+                success += 1
+
+            except Exception as e:
+                fail += 1
+                errors.append(
+                    {
+                        "kanban_no": row.get("kanban_no"),
+                        "error": str(e)
+                    }
                 )
-
-            # ❌ ข้อมูลใหม่แย่กว่า → ข้าม
-            if old and new_score < old_score:
-                skipped += 1
-                continue
-
-            payload = {
-                "lot_no": str(row["lot_no"]).strip(),
-                "kanban_no": str(row["kanban_no"]).strip(),
-                "model_name": str(row["model_name"]).strip(),
-                "harness_part_no": str(row["Harness_part_no"]).strip(),
-                "wire_number": str(row["wire_number"]).strip(),
-                "wire_harness_code": str(row["wire_harness_code"]).strip(),
-                "mc_a": str(row["MC_A"]).strip(),
-                "mc_b": str(row["MC_B"]).strip(),
-                "twist_mc": str(row["Twist_MC"]).strip(),
-                "updated_at": pd.Timestamp.now(
-                    tz="Asia/Bangkok"
-                ).strftime("%Y-%m-%d %H:%M:%S"),
-            }
-
-            supabase.table("lot_master").upsert(
-                payload,
-                on_conflict="kanban_no"
-            ).execute()
-
-            success += 1
 
     # -----------------------------
     # RESULT
     # -----------------------------
-    st.success(f"✅ Upload สำเร็จ {success} kanban")
-    if skipped:
-        st.warning(f"⏭️ ข้าม {skipped} kanban (ข้อมูลเดิมครบกว่า)")
+    st.success(f"✅ Upload สำเร็จ {success} รายการ")
+    if fail:
+        st.error(f"❌ ผิดพลาด {fail} รายการ")
+        st.dataframe(pd.DataFrame(errors).head(20))
 
-    st.caption(
-        "📌 Logic: kanban ซ้ำ → ใช้แถวที่ข้อมูลครบกว่า | ไม่ลบของเดิม"
-    )
-
-
+    st.caption("📌 Logic: Duplicate kanban_no → keep latest record only")
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -740,6 +584,17 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
+
+
+
+
+
+
+
+
+
+
 
 
 
