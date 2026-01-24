@@ -248,7 +248,8 @@ elif mode == "Lot Kanban Summary":
 
 # =====================================================
 # =====================================================
-# 📦 KANBAN DELIVERY LOG (FINAL / SAFE / NO ERROR)
+# =====================================================
+# 📦 KANBAN DELIVERY LOG (FIXED PARAMS)
 # =====================================================
 elif mode == "Kanban Delivery Log":
 
@@ -265,59 +266,42 @@ elif mode == "Kanban Delivery Log":
 
     if st.button("🔍 Load Data"):
 
-        # -----------------------------
-        # RPC CALL
-        # -----------------------------
         try:
+            # ✅ CALL RPC (ตรง signature เป๊ะ)
             res = supabase.rpc(
                 "rpc_kanban_delivery_log",
                 {
-                    "p_kanban": f_kanban.strip() or None,
-                    "p_lot": f_lot.strip() or None,
-                    "p_model": f_model.strip() or None,
-                    "p_wire": None,
-                    "p_part": f_part.strip() or None,
-                    "p_scan_date": str(f_date) if f_date else None
+                    "p_kanban": f_kanban or None,
+                    "p_lot": f_lot or None,
+                    "p_model": f_model or None,
+                    "p_part": f_part or None,
+                    "p_scan_date": str(f_date) if f_date else None,
                 }
             ).execute()
+
         except Exception as e:
             st.error("❌ เรียกข้อมูลไม่สำเร็จ")
             st.code(str(e))
             st.stop()
 
-        df = safe_df(res.data)
+        df = pd.DataFrame(res.data or [])
 
         if df.empty:
             st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
             st.stop()
 
-        # -----------------------------
-        # TIMEZONE (UTC -> TH)
-        # -----------------------------
-        if "delivered_at" in df.columns:
-            df["Delivered At (GMT+7)"] = (
-                pd.to_datetime(df["delivered_at"], utc=True)
-                  .dt.tz_convert("Asia/Bangkok")
-                  .dt.strftime("%Y-%m-%d %H:%M:%S")
-            )
-        else:
-            df["Delivered At (GMT+7)"] = ""
+        # =============================
+        # TIMEZONE
+        # =============================
+        df["Delivered At (GMT+7)"] = pd.to_datetime(
+            df["delivered_at"]
+        ).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # -----------------------------
-        # STATUS
-        # -----------------------------
-        if "sent" in df.columns:
-            df["Status"] = df["sent"].apply(
-                lambda x: "Sent" if x else "Not Sent"
-            )
-        else:
-            df["Status"] = ""
-
-        # -----------------------------
+        # =============================
         # KPI
-        # -----------------------------
+        # =============================
         total = len(df)
-        sent = (df["Status"] == "Sent").sum()
+        sent = (df["status"] == "Sent").sum()
         remaining = total - sent
 
         k1, k2, k3 = st.columns(3)
@@ -327,32 +311,27 @@ elif mode == "Kanban Delivery Log":
 
         st.divider()
 
-        # -----------------------------
-        # SAFE DISPLAY COLUMNS
-        # -----------------------------
-        display_cols = [
-            "lot_no",
-            "kanban_no",
-            "wire_harness_code",
-            "model_name",
-            "harness_part_no",
-            "wire_number",
-            "subpackage_number",
-            "cable_name",
-            "wire_length_mm",
-            "joint_a",
-            "joint_b",
-            "mc_a",
-            "mc_b",
-            "twist_mc",
-            "Status",
-            "Delivered At (GMT+7)",
-        ]
-
-        display_cols = [c for c in display_cols if c in df.columns]
-
+        # =============================
+        # TABLE
+        # =============================
         st.dataframe(
-            df[display_cols],
+            df[
+                [
+                    "lot_no",
+                    "kanban_no",
+                    "model_name",
+                    "harness_part_no",
+                    "wire_number",
+                    "wire_harness_code",
+                    "joint_a",
+                    "joint_b",
+                    "mc_a",
+                    "mc_b",
+                    "twist_mc",
+                    "status",
+                    "Delivered At (GMT+7)",
+                ]
+            ],
             use_container_width=True,
             height=700
         )
@@ -662,6 +641,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
