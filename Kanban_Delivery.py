@@ -247,7 +247,8 @@ elif mode == "Lot Kanban Summary":
 
 
 # =====================================================
-# 📦 KANBAN DELIVERY LOG (FINAL / OR SEARCH)
+# =====================================================
+# 📦 KANBAN DELIVERY LOG (SAFE VERSION - NO KEYERROR)
 # =====================================================
 elif mode == "Kanban Delivery Log":
 
@@ -264,6 +265,9 @@ elif mode == "Kanban Delivery Log":
 
     if st.button("🔍 Load Data"):
 
+        # -----------------------------
+        # RPC
+        # -----------------------------
         res = supabase.rpc(
             "rpc_kanban_delivery_log",
             {
@@ -282,14 +286,52 @@ elif mode == "Kanban Delivery Log":
             st.warning("❌ ไม่พบข้อมูลตามเงื่อนไข")
             st.stop()
 
-        # =============================
-        # FORMAT TIME (TH)
-        # =============================
+        # -----------------------------
+        # TIMEZONE
+        # -----------------------------
         df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
 
-        # =============================
+        # -----------------------------
+        # STATUS NORMALIZE
+        # -----------------------------
+        if "status" not in df.columns:
+            if "sent" in df.columns:
+                df["status"] = df["sent"].apply(
+                    lambda x: "Sent" if x else "Not Sent"
+                )
+            else:
+                df["status"] = ""
+
+        # -----------------------------
+        # 🛡️ ENSURE COLUMNS (กัน KeyError)
+        # -----------------------------
+        required_cols = [
+            "lot_no",
+            "kanban_no",
+            "wire_harness_code",
+            "model_name",
+            "harness_part_no",
+            "wire_number",
+            "subpackage_number",
+            "cable_name",
+            "wire_length_mm",
+            "joint_a",
+            "joint_b",
+            "mc_a",
+            "mc_b",
+            "twist_mc",
+            "status",
+            "Delivered At (GMT+7)",
+            "delivered_by_name",
+        ]
+
+        for c in required_cols:
+            if c not in df.columns:
+                df[c] = ""
+
+        # -----------------------------
         # KPI
-        # =============================
+        # -----------------------------
         total = len(df)
         sent = (df["status"] == "Sent").sum()
         remaining = total - sent
@@ -301,9 +343,9 @@ elif mode == "Kanban Delivery Log":
 
         st.divider()
 
-        # =============================
-        # TABLE (FULL DETAIL)
-        # =============================
+        # -----------------------------
+        # TABLE
+        # -----------------------------
         st.dataframe(
             df[
                 [
@@ -323,7 +365,7 @@ elif mode == "Kanban Delivery Log":
                     "twist_mc",
                     "status",
                     "Delivered At (GMT+7)",
-                    "delivered_by_name"
+                    "delivered_by_name",
                 ]
             ],
             use_container_width=True,
@@ -331,8 +373,9 @@ elif mode == "Kanban Delivery Log":
         )
 
         st.caption(
-            "📊 Source: lot_master + kanban_delivery + operator_master (RPC)"
+            "📊 Source: lot_master + kanban_delivery (RPC)"
         )
+
 
 # =====================================================
 # 4) TRACKING SEARCH
@@ -633,6 +676,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
