@@ -222,18 +222,49 @@ elif mode == "Lot Kanban Summary":
         st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
         st.stop()
 
+    # =============================
+# NORMALIZE & DISPLAY (FULL)
+# =============================
     df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
-    df["Status"] = df["sent"].apply(lambda x: "Sent" if x else "Remaining")
+    df["status"] = df["sent"].apply(lambda x: "Sent" if x else "Not Sent")
+
+    # 🛡️ กัน KeyError (กรณีบาง field ไม่มี)
+    required_cols = [
+        "lot_no",
+        "kanban_no",
+        "model_name",
+        "harness_part_no",
+        "wire_number",
+        "wire_harness_code",
+        "joint_a",
+        "joint_b",
+        "mc_a",
+        "mc_b",
+        "twist_mc",
+        "status",
+        "Delivered At (GMT+7)",
+    ]
+
+    for c in required_cols:
+        if c not in df.columns:
+            df[c] = ""
 
     st.dataframe(
         df[
             [
+                "lot_no",
                 "kanban_no",
                 "model_name",
                 "harness_part_no",
                 "wire_number",
-                "Status",
-                "Delivered At (GMT+7)"
+                "wire_harness_code",
+                "joint_a",
+                "joint_b",
+                "mc_a",
+                "mc_b",
+                "twist_mc",
+                "status",
+                "Delivered At (GMT+7)",
             ]
         ],
         use_container_width=True,
@@ -641,6 +672,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
