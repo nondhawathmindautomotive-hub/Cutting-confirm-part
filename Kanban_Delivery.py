@@ -360,11 +360,12 @@ elif mode == "Tracking Search":
     st.dataframe(df, use_container_width=True)
 
 # =====================================================
-# 5) UPLOAD LOT MASTER (PRODUCTION VERSION)
+# =====================================================
+# 5) UPLOAD LOT MASTER (SAFE / PRODUCTION VERSION)
 # =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Latest Only)")
+    st.header("🔐 Upload Lot Master (Safe Replace)")
 
     # -----------------------------
     # PASSWORD
@@ -392,22 +393,30 @@ elif mode == "Upload Lot Master":
         st.error(f"❌ อ่านไฟล์ไม่สำเร็จ: {e}")
         st.stop()
 
-    st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} รายการ")
-    st.dataframe(df.head(10), use_container_width=True)
+    st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} แถว")
 
     # -----------------------------
-    # REQUIRED COLUMNS
+    # NORMALIZE HEADER (สำคัญมาก)
+    # -----------------------------
+    df.columns = (
+        df.columns
+          .str.strip()
+          .str.lower()
+    )
+
+    # -----------------------------
+    # REQUIRED COLUMNS (ตรง DB)
     # -----------------------------
     required_cols = [
         "lot_no",
         "kanban_no",
         "model_name",
-        "Harness_part_no",
+        "harness_part_no",
         "wire_number",
         "wire_harness_code",
-        "MC_A",
-        "MC_B",
-        "Twist_MC",
+        "mc_a",
+        "mc_b",
+        "twist_mc",
     ]
 
     missing = [c for c in required_cols if c not in df.columns]
@@ -421,8 +430,25 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # 🔥 ตัดซ้ำในไฟล์เองก่อน (เอาแถวล่างสุด = ล่าสุด)
-    df = df.drop_duplicates(subset=["kanban_no"], keep="last")
+    # -----------------------------
+    # DEDUPLICATE (เลือกแถวที่ข้อมูลครบที่สุด)
+    # -----------------------------
+    def completeness_score(r):
+        return sum(
+            1 for c in required_cols
+            if str(r.get(c, "")).strip() != ""
+        )
+
+    df["_score"] = df.apply(completeness_score, axis=1)
+
+    df = (
+        df.sort_values("_score", ascending=False)
+          .drop_duplicates(subset=["kanban_no"], keep="first")
+          .drop(columns="_score")
+    )
+
+    st.info(f"🧹 หลังตัดซ้ำ เหลือ {len(df)} kanban")
+    st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
     # CONFIRM
@@ -431,56 +457,79 @@ elif mode == "Upload Lot Master":
         st.stop()
 
     # -----------------------------
-    # UPLOAD
+    # LOAD EXISTING DATA (เฉพาะ kanban ที่ชน)
+    # -----------------------------
+    kanban_list = df["kanban_no"].tolist()
+
+    existing = (
+        supabase.table("lot_master")
+        .select(
+            "kanban_no, lot_no, model_name, harness_part_no, wire_number, wire_harness_code, mc_a, mc_b, twist_mc"
+        )
+        .in_("kanban_no", kanban_list)
+        .execute()
+        .data
+    )
+
+    existing_map = {r["kanban_no"]: r for r in existing}
+
+    # -----------------------------
+    # SAFE UPSERT
     # -----------------------------
     success = 0
-    fail = 0
-    errors = []
+    skipped = 0
 
     with st.spinner("⏳ กำลังอัปโหลดข้อมูล..."):
-        for i, row in df.iterrows():
-            try:
-                payload = {
-                    "lot_no": str(row["lot_no"]).strip(),
-                    "kanban_no": str(row["kanban_no"]).strip(),
-                    "model_name": str(row["model_name"]).strip(),
-                    "harness_part_no": str(row["Harness_part_no"]).strip(),
-                    "wire_number": str(row["wire_number"]).strip(),
-                    "wire_harness_code": str(row["wire_harness_code"]).strip(),
-                    "mc_a": str(row["MC_A"]).strip(),
-                    "mc_b": str(row["MC_B"]).strip(),
-                    "twist_mc": str(row["Twist_MC"]).strip(),
-                    "updated_at": pd.Timestamp.now(tz="Asia/Bangkok").strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    ),
-                }
+        for _, row in df.iterrows():
 
-                # 🔥 UPSERT: ถ้าซ้ำ kanban_no → แทนของเก่า
-                supabase.table("lot_master").upsert(
-                    payload,
-                    on_conflict="kanban_no"
-                ).execute()
+            new_score = completeness_score(row)
+            old = existing_map.get(row["kanban_no"])
 
-                success += 1
-
-            except Exception as e:
-                fail += 1
-                errors.append(
-                    {
-                        "kanban_no": row.get("kanban_no"),
-                        "error": str(e)
-                    }
+            old_score = 0
+            if old:
+                old_score = sum(
+                    1 for v in old.values()
+                    if v not in ("", None)
                 )
+
+            # ❌ ข้อมูลใหม่แย่กว่า → ข้าม
+            if old and new_score < old_score:
+                skipped += 1
+                continue
+
+            payload = {
+                "lot_no": str(row["lot_no"]).strip(),
+                "kanban_no": str(row["kanban_no"]).strip(),
+                "model_name": str(row["model_name"]).strip(),
+                "harness_part_no": str(row["harness_part_no"]).strip(),
+                "wire_number": str(row["wire_number"]).strip(),
+                "wire_harness_code": str(row["wire_harness_code"]).strip(),
+                "mc_a": str(row["mc_a"]).strip(),
+                "mc_b": str(row["mc_b"]).strip(),
+                "twist_mc": str(row["twist_mc"]).strip(),
+                "updated_at": pd.Timestamp.now(
+                    tz="Asia/Bangkok"
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
+            supabase.table("lot_master").upsert(
+                payload,
+                on_conflict="kanban_no"
+            ).execute()
+
+            success += 1
 
     # -----------------------------
     # RESULT
     # -----------------------------
-    st.success(f"✅ Upload สำเร็จ {success} รายการ")
-    if fail:
-        st.error(f"❌ ผิดพลาด {fail} รายการ")
-        st.dataframe(pd.DataFrame(errors).head(20))
+    st.success(f"✅ Upload สำเร็จ {success} kanban")
+    if skipped:
+        st.warning(f"⏭️ ข้าม {skipped} kanban (ข้อมูลเดิมครบกว่า)")
 
-    st.caption("📌 Logic: Duplicate kanban_no → keep latest record only")
+    st.caption(
+        "📌 Logic: kanban ซ้ำ → ใช้แถวที่ข้อมูลครบกว่า | ไม่ลบของเดิม"
+    )
+
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -584,6 +633,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
