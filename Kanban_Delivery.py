@@ -248,7 +248,7 @@ elif mode == "Lot Kanban Summary":
 
 # =====================================================
 # =====================================================
-# 📦 KANBAN DELIVERY LOG (SAFE VERSION - NO KEYERROR)
+# 📦 KANBAN DELIVERY LOG (FINAL / SAFE / NO ERROR)
 # =====================================================
 elif mode == "Kanban Delivery Log":
 
@@ -260,25 +260,30 @@ elif mode == "Kanban Delivery Log":
     f_kanban = c1.text_input("Kanban No.")
     f_lot    = c2.text_input("Lot No.")
     f_model  = c3.text_input("Model")
-    f_wire   = c4.text_input("Wire / Part No.")
+    f_part   = c4.text_input("Wire / Part No.")
     f_date   = c5.date_input("Scan Date", value=None)
 
     if st.button("🔍 Load Data"):
 
         # -----------------------------
-        # RPC
+        # RPC CALL
         # -----------------------------
-        res = supabase.rpc(
-            "rpc_kanban_delivery_log",
-            {
-                "p_kanban": f_kanban or None,
-                "p_lot": f_lot or None,
-                "p_model": f_model or None,
-                "p_wire": f_wire or None,
-                "p_part": f_wire or None,
-                "p_scan_date": str(f_date) if f_date else None
-            }
-        ).execute()
+        try:
+            res = supabase.rpc(
+                "rpc_kanban_delivery_log",
+                {
+                    "p_kanban": f_kanban.strip() or None,
+                    "p_lot": f_lot.strip() or None,
+                    "p_model": f_model.strip() or None,
+                    "p_wire": None,
+                    "p_part": f_part.strip() or None,
+                    "p_scan_date": str(f_date) if f_date else None
+                }
+            ).execute()
+        except Exception as e:
+            st.error("❌ เรียกข้อมูลไม่สำเร็จ")
+            st.code(str(e))
+            st.stop()
 
         df = safe_df(res.data)
 
@@ -287,25 +292,45 @@ elif mode == "Kanban Delivery Log":
             st.stop()
 
         # -----------------------------
-        # TIMEZONE
+        # TIMEZONE (UTC -> TH)
         # -----------------------------
-        df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
+        if "delivered_at" in df.columns:
+            df["Delivered At (GMT+7)"] = (
+                pd.to_datetime(df["delivered_at"], utc=True)
+                  .dt.tz_convert("Asia/Bangkok")
+                  .dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+        else:
+            df["Delivered At (GMT+7)"] = ""
 
         # -----------------------------
-        # STATUS NORMALIZE
+        # STATUS
         # -----------------------------
-        if "status" not in df.columns:
-            if "sent" in df.columns:
-                df["status"] = df["sent"].apply(
-                    lambda x: "Sent" if x else "Not Sent"
-                )
-            else:
-                df["status"] = ""
+        if "sent" in df.columns:
+            df["Status"] = df["sent"].apply(
+                lambda x: "Sent" if x else "Not Sent"
+            )
+        else:
+            df["Status"] = ""
 
         # -----------------------------
-        # 🛡️ ENSURE COLUMNS (กัน KeyError)
+        # KPI
         # -----------------------------
-        required_cols = [
+        total = len(df)
+        sent = (df["Status"] == "Sent").sum()
+        remaining = total - sent
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("📦 Total", total)
+        k2.metric("✅ Sent", sent)
+        k3.metric("⏳ Not Sent", remaining)
+
+        st.divider()
+
+        # -----------------------------
+        # SAFE DISPLAY COLUMNS
+        # -----------------------------
+        display_cols = [
             "lot_no",
             "kanban_no",
             "wire_harness_code",
@@ -320,61 +345,22 @@ elif mode == "Kanban Delivery Log":
             "mc_a",
             "mc_b",
             "twist_mc",
-            "status",
+            "Status",
             "Delivered At (GMT+7)",
-            "delivered_by_name",
         ]
 
-        for c in required_cols:
-            if c not in df.columns:
-                df[c] = ""
+        display_cols = [c for c in display_cols if c in df.columns]
 
-        # -----------------------------
-        # KPI
-        # -----------------------------
-        total = len(df)
-        sent = (df["status"] == "Sent").sum()
-        remaining = total - sent
-
-        k1, k2, k3 = st.columns(3)
-        k1.metric("📦 Total", total)
-        k2.metric("✅ Sent", sent)
-        k3.metric("⏳ Not Sent", remaining)
-
-        st.divider()
-
-        # -----------------------------
-        # TABLE
-        # -----------------------------
         st.dataframe(
-            df[
-                [
-                    "lot_no",
-                    "kanban_no",
-                    "wire_harness_code",
-                    "model_name",
-                    "harness_part_no",
-                    "wire_number",
-                    "subpackage_number",
-                    "cable_name",
-                    "wire_length_mm",
-                    "joint_a",
-                    "joint_b",
-                    "mc_a",
-                    "mc_b",
-                    "twist_mc",
-                    "status",
-                    "Delivered At (GMT+7)",
-                    "delivered_by_name",
-                ]
-            ],
+            df[display_cols],
             use_container_width=True,
             height=700
         )
 
         st.caption(
-            "📊 Source: lot_master + kanban_delivery (RPC)"
+            "📊 Source: lot_master + kanban_delivery (rpc_kanban_delivery_log)"
         )
+
 
 
 # =====================================================
@@ -676,6 +662,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
