@@ -478,9 +478,11 @@ elif mode == "Tracking Search":
 # =====================================================
 # 5) UPLOAD LOT MASTER (REPLACE / MERGE VERSION)
 # =====================================================
+# 5) UPLOAD LOT MASTER (SAFE REPLACEMENT VERSION)
+# =====================================================
 elif mode == "Upload Lot Master":
 
-    st.header("🔐 Upload Lot Master (Replace / Merge)")
+    st.header("🔐 Upload Lot Master (Safe Replace)")
 
     # -----------------------------
     # PASSWORD
@@ -492,7 +494,7 @@ elif mode == "Upload Lot Master":
     # -----------------------------
     # FILE UPLOAD
     # -----------------------------
-    file = st.file_uploader("📤 Upload CSV / Excel", ["csv", "xlsx"])
+    file = st.file_uploader("Upload CSV / Excel", ["csv", "xlsx"])
     if not file:
         st.stop()
 
@@ -509,13 +511,25 @@ elif mode == "Upload Lot Master":
         st.stop()
 
     st.success(f"📂 โหลดไฟล์สำเร็จ {len(df)} แถว")
-    st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
-    # REQUIRED COLUMN (ขั้นต่ำ)
+    # REQUIRED COLUMNS
     # -----------------------------
-    if "kanban_no" not in df.columns:
-        st.error("❌ ต้องมีคอลัมน์ kanban_no อย่างน้อย")
+    required_cols = [
+        "lot_no",
+        "kanban_no",
+        "model_name",
+        "Harness_part_no",
+        "wire_number",
+        "wire_harness_code",
+        "MC_A",
+        "MC_B",
+        "Twist_MC",
+    ]
+
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"❌ ไฟล์ขาดคอลัมน์: {missing}")
         st.stop()
 
     # -----------------------------
@@ -524,69 +538,103 @@ elif mode == "Upload Lot Master":
     df = df.fillna("")
     df["kanban_no"] = df["kanban_no"].astype(str).str.strip()
 
-    # ตัด kanban ซ้ำในไฟล์ (เก็บแถวล่างสุด)
-    df = df.drop_duplicates(subset=["kanban_no"], keep="last")
+    # 🔥 ตัดแถวซ้ำในไฟล์ → เลือกแถวที่ข้อมูลครบที่สุด
+    def completeness_score(r):
+        return sum(
+            1 for c in required_cols
+            if str(r.get(c, "")).strip() != ""
+        )
 
-    st.info(f"🧹 หลังตัด kanban_no ซ้ำ เหลือ {len(df)} แถว")
+    df["_score"] = df.apply(completeness_score, axis=1)
+    df = (
+        df.sort_values("_score", ascending=False)
+          .drop_duplicates(subset=["kanban_no"], keep="first")
+          .drop(columns="_score")
+    )
+
+    st.info(f"🧹 หลังตัดซ้ำ เหลือ {len(df)} kanban")
+
+    st.dataframe(df.head(10), use_container_width=True)
 
     # -----------------------------
     # CONFIRM
     # -----------------------------
-    if not st.button("🚀 Upload & Merge"):
+    if not st.button("🚀 Upload to Supabase"):
         st.stop()
 
     # -----------------------------
-    # UPLOAD → STAGING
+    # LOAD EXISTING DATA (เฉพาะ kanban ที่ชน)
     # -----------------------------
-    with st.spinner("⏳ Uploading to staging..."):
+    kanban_list = df["kanban_no"].tolist()
 
-        supabase.table("lot_master_staging").delete().neq(
-            "kanban_no", "__dummy__"
-        ).execute()
+    existing = (
+        supabase.table("lot_master")
+        .select(
+            "kanban_no, lot_no, model_name, harness_part_no, wire_number, wire_harness_code, mc_a, mc_b, twist_mc"
+        )
+        .in_("kanban_no", kanban_list)
+        .execute()
+        .data
+    )
 
-        payload = []
-        for _, r in df.iterrows():
-            payload.append(
-                {
-                    "kanban_no": str(r.get("kanban_no", "")).strip(),
-                    "lot_no": str(r.get("lot_no", "")).strip(),
-                    "model_name": str(r.get("model_name", "")).strip(),
-                    "wire_number": str(r.get("wire_number", "")).strip(),
-                    "cable_name": str(r.get("cable_name", "")).strip(),
-                    "wire_length_mm": (
-                        float(r["wire_length_mm"])
-                        if str(r.get("wire_length_mm", "")).strip()
-                        else None
-                    ),
-                    "subpackage_number": str(r.get("subpackage_number", "")).strip(),
-                    "wire_harness_code": str(r.get("wire_harness_code", "")).strip(),
-                }
-            )
-
-        # batch insert
-        supabase.table("lot_master_staging").insert(payload).execute()
-
-    st.success("✅ Upload to staging สำเร็จ")
+    existing_map = {r["kanban_no"]: r for r in existing}
 
     # -----------------------------
-    # MERGE (CALL SQL / RPC)
+    # UPLOAD (SAFE UPSERT)
     # -----------------------------
-    with st.spinner("🧠 Merging data (replace by better data)..."):
+    success = 0
+    skipped = 0
 
-        supabase.rpc(
-            "rpc_merge_lot_master"
-        ).execute()
+    with st.spinner("⏳ กำลังอัปโหลดข้อมูล..."):
+        for _, row in df.iterrows():
 
-    st.success("🎉 Merge สำเร็จแล้ว")
+            new_score = completeness_score(row)
+            old = existing_map.get(row["kanban_no"])
+
+            old_score = 0
+            if old:
+                old_score = sum(
+                    1 for v in old.values()
+                    if v not in ("", None)
+                )
+
+            # ❌ ข้อมูลใหม่แย่กว่า → ข้าม
+            if old and new_score < old_score:
+                skipped += 1
+                continue
+
+            payload = {
+                "lot_no": str(row["lot_no"]).strip(),
+                "kanban_no": str(row["kanban_no"]).strip(),
+                "model_name": str(row["model_name"]).strip(),
+                "harness_part_no": str(row["Harness_part_no"]).strip(),
+                "wire_number": str(row["wire_number"]).strip(),
+                "wire_harness_code": str(row["wire_harness_code"]).strip(),
+                "mc_a": str(row["MC_A"]).strip(),
+                "mc_b": str(row["MC_B"]).strip(),
+                "twist_mc": str(row["Twist_MC"]).strip(),
+                "updated_at": pd.Timestamp.now(
+                    tz="Asia/Bangkok"
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
+            supabase.table("lot_master").upsert(
+                payload,
+                on_conflict="kanban_no"
+            ).execute()
+
+            success += 1
 
     # -----------------------------
     # RESULT
     # -----------------------------
-    st.caption(
-        "📌 Logic: kanban_no ซ้ำ → เก็บแถวที่ข้อมูลครบกว่า "
-        "+ ถ้าคะแนนเท่ากัน ข้อมูลใหม่ชนะ"
-    )
+    st.success(f"✅ Upload สำเร็จ {success} kanban")
+    if skipped:
+        st.warning(f"⏭️ ข้าม {skipped} kanban (ข้อมูลเดิมครบกว่า)")
 
+    st.caption(
+        "📌 Logic: kanban ซ้ำ → ใช้แถวที่ข้อมูลครบกว่า | ไม่ลบของเดิม"
+    )
 
 
 
@@ -692,6 +740,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
