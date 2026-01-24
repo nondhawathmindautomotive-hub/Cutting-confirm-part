@@ -236,6 +236,8 @@ elif mode == "Lot Kanban Summary":
         "harness_part_no",
         "wire_number",
         "wire_harness_code",
+        "cable_name",
+        "wire_length_mm",
         "joint_a",
         "joint_b",
         "mc_a",
@@ -258,6 +260,8 @@ elif mode == "Lot Kanban Summary":
                 "harness_part_no",
                 "wire_number",
                 "wire_harness_code",
+                "cable_name",
+                "wire_length_mm",
                 "joint_a",
                 "joint_b",
                 "mc_a",
@@ -672,6 +676,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
