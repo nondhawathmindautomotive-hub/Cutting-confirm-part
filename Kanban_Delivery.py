@@ -147,14 +147,11 @@ elif mode == "Lot Kanban Summary":
 
     st.header("📊 Lot Kanban Summary")
 
-    # =============================
-    # FILTER
-    # =============================
     c1, c2, c3, c4 = st.columns(4)
-    f_lot = c1.text_input("Lot No. (ต้องตรง 100%)")
+    f_lot   = c1.text_input("Lot No. (ต้องตรง 100%)")
     f_model = c2.text_input("Model")
-    f_wire = c3.text_input("Wire Number")
-    f_part = c4.text_input("Harness Part No")
+    f_wire  = c3.text_input("Wire Number")
+    f_part  = c4.text_input("Harness Part No")
 
     f_status = st.selectbox(
         "Status",
@@ -166,90 +163,56 @@ elif mode == "Lot Kanban Summary":
         }[x]
     )
 
-    # ⛔ ต้องอยู่ตรงนี้เท่านั้น
     if not f_lot:
         st.info("กรุณาใส่ Lot No.")
         st.stop()
 
     # =============================
-    # KPI
+    # KPI (ใช้ข้อมูลจริงจาก kanban_delivery)
     # =============================
-    with st.spinner("กำลังคำนวณยอดจริงจากฐานข้อมูล..."):
-        kpi_res = supabase.rpc(
-            "rpc_part_kpi",
-            {
-                "p_lot_no": f_lot.strip(),
-                "p_wire_number": f_wire.strip() or None,
-                "p_harness_part_no": f_part.strip() or None
-            }
-        ).execute()
+    kpi_res = supabase.rpc(
+        "rpc_part_kpi",
+        {
+            "p_lot_no": f_lot.strip(),
+            "p_wire_number": f_wire.strip() or None,
+            "p_harness_part_no": f_part.strip() or None
+        }
+    ).execute()
 
     if not kpi_res.data:
-        st.warning("ไม่พบข้อมูล")
+        st.warning("ไม่พบข้อมูล KPI")
         st.stop()
 
     kpi = kpi_res.data[0]
 
-    total_kanban = int(kpi["total_kanban"])
-    sent_kanban = int(kpi["sent_kanban"])
-    remaining_kanban = int(kpi["remaining_kanban"])
-
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Total Kanban", total_kanban)
-    k2.metric("✅ Sent", sent_kanban)
-    k3.metric("⏳ Remaining", remaining_kanban)
+    k1.metric("📦 Total Kanban", int(kpi["total_kanban"]))
+    k2.metric("✅ Sent", int(kpi["sent_kanban"]))
+    k3.metric("⏳ Remaining", int(kpi["remaining_kanban"]))
 
     st.divider()
 
     # =============================
     # DETAIL TABLE
     # =============================
-    with st.spinner("กำลังโหลดรายการวงจร..."):
-        res = supabase.rpc(
-            "rpc_lot_kanban_circuits",
-            {
-                "p_lot_no": f_lot.strip(),
-                "p_model": f_model.strip() or None,
-                "p_status": f_status,
-                "p_wire_number": f_wire.strip() or None,
-                "p_harness_part_no": f_part.strip() or None
-            }
-        ).execute()
+    res = supabase.rpc(
+        "rpc_lot_kanban_circuits",
+        {
+            "p_lot_no": f_lot.strip(),
+            "p_model": f_model.strip() or None,
+            "p_status": f_status,
+            "p_wire_number": f_wire.strip() or None,
+            "p_part_no": f_part.strip() or None
+        }
+    ).execute()
 
-    df = safe_df(res.data)
+    df = pd.DataFrame(res.data)
 
     if df.empty:
-        st.warning("ไม่พบรายการวงจรตามเงื่อนไข")
+        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
-    # =============================
-# NORMALIZE & DISPLAY (FULL)
-# =============================
-    df["Delivered At (GMT+7)"] = df["delivered_at"].apply(to_gmt7)
-    df["status"] = df["sent"].apply(lambda x: "Sent" if x else "Not Sent")
-
-    # 🛡️ กัน KeyError (กรณีบาง field ไม่มี)
-    required_cols = [
-        "lot_no",
-        "kanban_no",
-        "model_name",
-        "harness_part_no",
-        "wire_number",
-        "wire_harness_code",
-        "cable_name",
-        "wire_length_mm",
-        "joint_a",
-        "joint_b",
-        "mc_a",
-        "mc_b",
-        "twist_mc",
-        "status",
-        "Delivered At (GMT+7)",
-    ]
-
-    for c in required_cols:
-        if c not in df.columns:
-            df[c] = ""
+    df["Delivered At (GMT+7)"] = df["delivered_at_gmt7"].astype(str)
 
     st.dataframe(
         df[
@@ -268,18 +231,14 @@ elif mode == "Lot Kanban Summary":
                 "mc_b",
                 "twist_mc",
                 "status",
-                "Delivered At (GMT+7)",
+                "Delivered At (GMT+7)"
             ]
         ],
         use_container_width=True,
         height=650
     )
 
-    st.caption(
-        f"📊 Source: rpc_part_kpi + rpc_lot_kanban_circuits | "
-        f"Lot {f_lot} | Total จริง = {total_kanban}"
-    )
-
+    st.caption("📊 Source: kanban_delivery + lot_master (RPC)")
 
 # =====================================================
 # =====================================================
@@ -676,6 +635,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
