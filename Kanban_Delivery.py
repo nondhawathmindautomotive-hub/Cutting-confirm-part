@@ -26,7 +26,12 @@ st.title("📦 Kanban Delivery - MIND Automotive Parts")
 def to_gmt7(ts):
     if not ts:
         return ""
-    return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        pd.to_datetime(ts, utc=True)          # บอกว่าเป็น UTC
+          .tz_convert("Asia/Bangkok")         # แปลงเป็นเวลาไทย
+          .strftime("%Y-%m-%d %H:%M:%S")
+    )
+
 
 
 # =====================================================
@@ -635,6 +640,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
