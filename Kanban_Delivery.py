@@ -71,79 +71,70 @@ mode = st.sidebar.radio(
 # =====================================================
 # 1) SCAN KANBAN
 # =====================================================
+# 1) SCAN KANBAN
+# =====================================================
 if mode == "Scan Kanban":
 
-    st.header("✅ Scan Kanban")
+    st.header("✅ Scan Kanban (RPC Bundle Mode)")
 
     def confirm_scan():
+
         kanban = norm(st.session_state.scan)
         if not kanban:
             return
 
-        now_ts = pd.Timestamp.now(tz="Asia/Bangkok").strftime("%Y-%m-%d %H:%M:%S")
+        # =============================
+        # CALL RPC : COMPLETE KANBAN BUNDLE
+        # =============================
+        try:
+            res = supabase.rpc(
+                "rpc_complete_kanban_bundle",
+                {
+                    "p_kanban_no": kanban
+                }
+            ).execute()
 
-        base = (
-            supabase.table("lot_master")
-            .select(
-                "kanban_no, model_name, lot_no, wire_number, joint_a, joint_b"
+        except Exception as e:
+            st.session_state.msg = (
+                "error",
+                f"❌ RPC Error: {e}"
             )
-            .eq("kanban_no", kanban)
-            .limit(1)
-            .execute()
-            .data
-        )
-
-        if not base:
-            st.session_state.msg = ("error", "❌ ไม่พบ Kanban ใน Lot Master")
             st.session_state.scan = ""
             return
 
-        row = base[0]
-        model = norm(row["model_name"])
-        lot = norm(row["lot_no"])
-        wire_number = norm(row.get("wire_number"))
-        joint_a = norm(row.get("joint_a"))
-        joint_b = norm(row.get("joint_b"))
-
-        # -------------------------
-        # CHECK EXIST
-        # -------------------------
-        exist = (
-            supabase.table("kanban_delivery")
-            .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .execute()
-            .data
-        )
-
-        payload = {
-            "kanban_no": kanban,
-            "model_name": model,
-            "lot_no": lot,
-            "wire_number": wire_number,
-            "last_scanned_at": now_ts
-        }
-
-        if exist:
-            supabase.table("kanban_delivery").update(payload)\
-                .eq("kanban_no", kanban).execute()
-            st.session_state.msg = ("success", "🔄 Scan ซ้ำ (อัปเดตเวลา)")
+        # =============================
+        # RESULT HANDLE
+        # =============================
+        if not res.data:
+            st.session_state.msg = (
+                "warning",
+                "⚠️ ไม่พบ Kanban / Bundle ในระบบ"
+            )
         else:
-            supabase.table("kanban_delivery").insert(payload).execute()
-            st.session_state.msg = ("success", "✅ ส่ง Kanban สำเร็จ")
+            st.session_state.msg = (
+                "success",
+                f"✅ Complete {len(res.data)} Kanban (Bundle)"
+            )
 
         st.session_state.scan = ""
 
+    # =============================
+    # INPUT (SCAN)
+    # =============================
     st.text_input(
         "Scan Kanban No.",
         key="scan",
         on_change=confirm_scan
     )
 
+    # =============================
+    # MESSAGE
+    # =============================
     if "msg" in st.session_state:
         t, m = st.session_state.msg
         getattr(st, t)(m)
         del st.session_state.msg
+
 
 # =====================================================
 # 2) LOT KANBAN SUMMARY (SOURCE OF TRUTH)
@@ -641,6 +632,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
