@@ -71,7 +71,8 @@ mode = st.sidebar.radio(
 # =====================================================
 # 1) SCAN KANBAN
 # =====================================================
-
+# 1) SCAN KANBAN
+# =====================================================
 if mode == "Scan Kanban":
 
     st.header("✅ Scan Kanban (RPC Bundle Mode)")
@@ -81,9 +82,9 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-    # -------------------------
-    # 1) เช็คว่าเคยสแกนแล้วไหม
-    # -------------------------
+        # -------------------------
+        # 1) เช็คว่าเคยสแกนแล้วไหม
+        # -------------------------
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -93,23 +94,20 @@ if mode == "Scan Kanban":
             .data
         )
 
-    # -------------------------
-    # 2) เรียก RPC bundle (ตัวจริง)
-    # -------------------------
+        # -------------------------
+        # 2) เรียก RPC bundle
+        # -------------------------
         rpc_res = supabase.rpc(
             "rpc_complete_kanban_bundle",
-            {
-                "p_kanban_no": kanban
-            }
+            {"p_kanban_no": kanban}
         ).execute()
 
         bundle_df = pd.DataFrame(rpc_res.data or [])
-
         bundle_count = len(bundle_df)
 
-    # -------------------------
-    # 3) แสดงผลตามสถานะ
-    # -------------------------
+        # -------------------------
+        # 3) MESSAGE
+        # -------------------------
         if exist:
             # 🔁 สแกนซ้ำ
             if bundle_count > 1:
@@ -141,23 +139,22 @@ if mode == "Scan Kanban":
 
         st.session_state.scan = ""
 
-
     # =============================
-    # INPUT (SCAN)
+    # INPUT
     # =============================
-        st.text_input(
-            "Scan Kanban No.",
-            key="scan",
-            on_change=confirm_scan
-        )
+    st.text_input(
+        "Scan Kanban No.",
+        key="scan",
+        on_change=confirm_scan
+    )
 
     # =============================
     # MESSAGE
     # =============================
-        if "msg" in st.session_state:
-            t, m = st.session_state.msg
-            getattr(st, t)(m)
-            del st.session_state.msg
+    if "msg" in st.session_state:
+        t, m = st.session_state.msg
+        getattr(st, t)(m)
+        del st.session_state.msg
 
 
 # =====================================================
@@ -656,6 +653,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
