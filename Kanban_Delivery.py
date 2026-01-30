@@ -75,7 +75,7 @@ mode = st.sidebar.radio(
 # =====================================================
 if mode == "Scan Kanban":
 
-    st.header("✅ Scan Kanban (RPC Bundle Mode)")
+    st.header("✅ Scan Kanban ")
 
     def confirm_scan():
         kanban = norm(st.session_state.scan)
@@ -653,6 +653,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
