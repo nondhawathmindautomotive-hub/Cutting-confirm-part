@@ -71,52 +71,76 @@ mode = st.sidebar.radio(
 # =====================================================
 # 1) SCAN KANBAN
 # =====================================================
-# 1) SCAN KANBAN
-# =====================================================
+
 if mode == "Scan Kanban":
 
     st.header("✅ Scan Kanban (RPC Bundle Mode)")
 
     def confirm_scan():
+    kanban = norm(st.session_state.scan)
+    if not kanban:
+        return
 
-        kanban = norm(st.session_state.scan)
-        if not kanban:
-            return
+    # -------------------------
+    # 1) เช็คว่าเคยสแกนแล้วไหม
+    # -------------------------
+    exist = (
+        supabase.table("kanban_delivery")
+        .select("kanban_no")
+        .eq("kanban_no", kanban)
+        .limit(1)
+        .execute()
+        .data
+    )
 
-        # =============================
-        # CALL RPC : COMPLETE KANBAN BUNDLE
-        # =============================
-        try:
-            res = supabase.rpc(
-                "rpc_complete_kanban_bundle",
-                {
-                    "p_kanban_no": kanban
-                }
-            ).execute()
+    # -------------------------
+    # 2) เรียก RPC bundle (ตัวจริง)
+    # -------------------------
+    rpc_res = supabase.rpc(
+        "rpc_complete_kanban_bundle",
+        {
+            "p_kanban_no": kanban
+        }
+    ).execute()
 
-        except Exception as e:
-            st.session_state.msg = (
-                "error",
-                f"❌ RPC Error: {e}"
-            )
-            st.session_state.scan = ""
-            return
+    bundle_df = pd.DataFrame(rpc_res.data or [])
 
-        # =============================
-        # RESULT HANDLE
-        # =============================
-        if not res.data:
+    bundle_count = len(bundle_df)
+
+    # -------------------------
+    # 3) แสดงผลตามสถานะ
+    # -------------------------
+    if exist:
+        # 🔁 สแกนซ้ำ
+        if bundle_count > 1:
             st.session_state.msg = (
                 "warning",
-                "⚠️ ไม่พบ Kanban / Bundle ในระบบ"
+                f"⚠️ Kanban นี้ถูกสแกนแล้ว\n"
+                f"📦 เป็นชุดพ่วง ถูก Complete ไปแล้ว {bundle_count} ใบ"
+            )
+        else:
+            st.session_state.msg = (
+                "warning",
+                "⚠️ Kanban นี้ถูกสแกนแล้ว\n"
+                "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
+            )
+    else:
+        # ✅ สแกนใหม่
+        if bundle_count > 1:
+            st.session_state.msg = (
+                "success",
+                f"✅ ส่ง Kanban สำเร็จ\n"
+                f"📦 ชุดเดียวกันถูก Complete พร้อมกัน {bundle_count} ใบ"
             )
         else:
             st.session_state.msg = (
                 "success",
-                f"✅ Complete {len(res.data)} Kanban (Bundle)"
+                "✅ ส่ง Kanban สำเร็จ\n"
+                "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
             )
 
-        st.session_state.scan = ""
+    st.session_state.scan = ""
+
 
     # =============================
     # INPUT (SCAN)
@@ -632,6 +656,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
