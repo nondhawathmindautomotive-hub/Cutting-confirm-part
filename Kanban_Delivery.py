@@ -75,54 +75,16 @@ mode = st.sidebar.radio(
 # =====================================================
 if mode == "Scan Kanban":
 
-    st.header("✅ Scan Kanban")
+    st.header("✅ Scan Kanban ")
 
     def confirm_scan():
         kanban = norm(st.session_state.scan)
         if not kanban:
             return
 
-        # --------------------------------------------------
-        # 0) CHECK: มีใน LOT MASTER ไหม
-        # --------------------------------------------------
-        lot_check = (
-            supabase.table("lot_master")
-            .select("kanban_no")
-            .eq("kanban_no", kanban)
-            .limit(1)
-            .execute()
-            .data
-        )
-
-        # ==================================================
-        # ❌ NOT FOUND IN LOT MASTER
-        # ==================================================
-        if not lot_check:
-            # บันทึก pending (ถ้ายังไม่เคย)
-            try:
-                supabase.table("kanban_pending_lot_master").upsert(
-                    {
-                        "kanban_no": kanban,
-                        "remark": "Scanned before lot master upload"
-                    },
-                    on_conflict="kanban_no"
-                ).execute()
-            except Exception:
-                pass
-
-            st.session_state.msg = (
-                "orange",
-                "⚠️ ไม่พบข้อมูลใน Lot Master<br>"
-                "🧾 ระบบบันทึกไว้แล้ว<br>"
-                "📞 กรุณาติดต่อหัวหน้างาน"
-            )
-
-            st.session_state.scan = ""
-            return
-
-        # --------------------------------------------------
+        # -------------------------
         # 1) เช็คว่าเคยสแกนแล้วไหม
-        # --------------------------------------------------
+        # -------------------------
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -132,9 +94,9 @@ if mode == "Scan Kanban":
             .data
         )
 
-        # --------------------------------------------------
+        # -------------------------
         # 2) เรียก RPC bundle
-        # --------------------------------------------------
+        # -------------------------
         rpc_res = supabase.rpc(
             "rpc_complete_kanban_bundle",
             {"p_kanban_no": kanban}
@@ -143,26 +105,35 @@ if mode == "Scan Kanban":
         bundle_df = pd.DataFrame(rpc_res.data or [])
         bundle_count = len(bundle_df)
 
-        # --------------------------------------------------
+        # -------------------------
         # 3) MESSAGE
-        # --------------------------------------------------
+        # -------------------------
         if exist:
-            st.session_state.msg = (
-                "orange",
-                "⚠️ Kanban นี้ถูกสแกนแล้ว<br>"
-                "📦 ไม่สามารถส่งซ้ำได้"
-            )
-        else:
+            # 🔁 สแกนซ้ำ
             if bundle_count > 1:
                 st.session_state.msg = (
-                    "blue",
-                    f"✅ ส่ง Kanban สำเร็จ<br>"
-                    f"🧩 ชุดพ่วง Complete พร้อมกัน {bundle_count} ใบ"
+                    "warning",
+                    f"⚠️ Kanban นี้ถูกสแกนแล้ว\n"
+                    f"📦 เป็นชุดพ่วง ถูก Complete ไปแล้ว {bundle_count} ใบ"
                 )
             else:
                 st.session_state.msg = (
-                    "green",
-                    "✅ ส่ง Kanban สำเร็จ<br>"
+                    "warning",
+                    "⚠️ Kanban นี้ถูกสแกนแล้ว\n"
+                    "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
+                )
+        else:
+            # ✅ สแกนใหม่
+            if bundle_count > 1:
+                st.session_state.msg = (
+                    "success",
+                    f"✅ ส่ง Kanban สำเร็จ\n"
+                    f"📦 ชุดเดียวกันถูก Complete พร้อมกัน {bundle_count} ใบ"
+                )
+            else:
+                st.session_state.msg = (
+                    "success",
+                    "✅ ส่ง Kanban สำเร็จ\n"
                     "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
                 )
 
@@ -178,28 +149,12 @@ if mode == "Scan Kanban":
     )
 
     # =============================
-    # RESULT (BIG SCREEN)
+    # MESSAGE
     # =============================
     if "msg" in st.session_state:
-        color, text = st.session_state.msg
-
-        css_map = {
-            "green": "scan-green",
-            "blue": "scan-blue",
-            "orange": "scan-orange",
-        }
-
-        st.markdown(
-            f"""
-            <div class="scan-result {css_map[color]}">
-                {text}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
+        t, m = st.session_state.msg
+        getattr(st, t)(m)
         del st.session_state.msg
-
 
 
 # =====================================================
@@ -698,7 +653,6 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
-
 
 
 
