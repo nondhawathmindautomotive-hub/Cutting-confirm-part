@@ -624,107 +624,159 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 📅 DELIVERY PLAN (Plan vs Actual)
 # =====================================================
-elif mode == "Delivery Plan":
+# 📅 DELIVERY PLAN (PLAN vs ACTUAL)
+# =====================================================
+if mode == "Delivery Plan":
 
     st.header("📅 Delivery Plan (Plan vs Actual)")
 
-    c1, c2, c3, c4 = st.columns(4)
-
-    f_date = c1.date_input("📆 Plan Delivery Date", value=None)
-    f_lot = c2.text_input("Lot No")
-    f_part = c3.text_input("Part Number (线束编号)")
-    f_status = c4.selectbox(
-        "Status",
-        ["ALL", "NOT SENT", "INCOMPLETE", "COMPLETE"],
-        format_func=lambda x: {
-            "ALL": "📦 ทั้งหมด",
-            "NOT SENT": "❌ ยังไม่ส่ง",
-            "INCOMPLETE": "🟧 ส่งไม่ครบ",
-            "COMPLETE": "✅ ส่งครบ"
-        }[x]
+    # -------------------------
+    # 1) LOAD DELIVERY PLAN
+    # -------------------------
+    plan_res = (
+        supabase.table("delivery_plan")
+        .select("""
+            lot_no,
+            part_number,
+            part_name,
+            model_level,
+            plan_qty,
+            plan_delivery_date,
+            plan_assembly_date,
+            remark
+        """)
+        .execute()
     )
 
-    if not f_date:
-        st.info("กรุณาเลือกวันที่จัดส่งตามแผน")
+    df_plan = pd.DataFrame(plan_res.data or [])
+
+    if df_plan.empty:
+        st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
         st.stop()
 
-    # =============================
-    # QUERY VIEW
-    # =============================
-    query = (
-        supabase
-        .from_("v_delivery_plan_summary")
-        .select("*")
-        .eq("plan_delivery_date", str(f_date))
+    # -------------------------
+    # 2) LOAD ACTUAL DELIVERY
+    # -------------------------
+    actual_res = (
+        supabase.table("kanban_delivery")
+        .select("""
+            lot_no,
+            kanban_no
+        """)
+        .execute()
     )
 
-    if f_lot:
-        query = query.eq("lot_no", f_lot.strip())
+    df_actual = pd.DataFrame(actual_res.data or [])
 
-    if f_part:
-        query = query.ilike("part_number", f"%{f_part.strip()}%")
+    if df_actual.empty:
+        df_actual = pd.DataFrame(columns=["lot_no", "kanban_no"])
 
-    if f_status != "ALL":
-        query = query.eq("delivery_status", f_status)
+    # -------------------------
+    # 3) AGGREGATE ACTUAL QTY
+    # -------------------------
+    df_actual_qty = (
+        df_actual
+        .groupby("lot_no")
+        .size()
+        .reset_index(name="delivered_qty")
+    )
 
-    res = query.execute()
-    df = pd.DataFrame(res.data or [])
+    # -------------------------
+    # 4) MERGE PLAN vs ACTUAL
+    # -------------------------
+    df = df_plan.merge(
+        df_actual_qty,
+        on="lot_no",
+        how="left"
+    )
 
-    if df.empty:
-        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
-        st.stop()
+    df["delivered_qty"] = df["delivered_qty"].fillna(0)
 
-    # =============================
-    # KPI
-    # =============================
-    total_plan = df["plan_qty"].sum()
-    total_sent = df["sent_qty"].sum()
-    total_remain = df["remaining_qty"].sum()
+    # -------------------------
+    # 5) DELIVERY STATUS
+    # -------------------------
+    df["delivery_status"] = df.apply(
+        lambda r: (
+            "🟢 Delivered" if r["delivered_qty"] >= r["plan_qty"]
+            else "🟡 Partial" if r["delivered_qty"] > 0
+            else "🔴 Pending"
+        ),
+        axis=1
+    )
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Plan Qty", int(total_plan))
-    k2.metric("✅ Sent Qty", int(total_sent))
-    k3.metric("❌ Remaining", int(total_remain))
+    status_order = {
+        "🔴 Pending": 0,
+        "🟡 Partial": 1,
+        "🟢 Delivered": 2
+    }
+
+    df["status_order"] = df["delivery_status"].map(status_order)
+
+    # -------------------------
+    # 6) PROGRESS %
+    # -------------------------
+    df["progress_pct"] = (
+        (df["delivered_qty"] / df["plan_qty"]) * 100
+    ).round(1)
+
+    df["progress_pct"] = df["progress_pct"].fillna(0)
+
+    # -------------------------
+    # 7) SORT
+    # -------------------------
+    df = df.sort_values(
+        by=["status_order", "plan_delivery_date", "lot_no"],
+        ascending=[True, True, True]
+    )
+
+    # -------------------------
+    # 8) KPI SUMMARY
+    # -------------------------
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "📦 Total Plan Qty",
+        int(df["plan_qty"].sum())
+    )
+
+    c2.metric(
+        "✅ Delivered Qty",
+        int(df["delivered_qty"].sum())
+    )
+
+    progress_all = (
+        df["delivered_qty"].sum() /
+        df["plan_qty"].sum() * 100
+    )
+
+    c3.metric(
+        "📊 Overall Progress",
+        f"{progress_all:.1f} %"
+    )
 
     st.divider()
 
-    # =============================
-    # STATUS COLOR
-    # =============================
-    def status_icon(x):
-        return {
-            "NOT SENT": "❌ NOT SENT",
-            "INCOMPLETE": "🟧 INCOMPLETE",
-            "COMPLETE": "✅ COMPLETE"
-        }.get(x, x)
+    # -------------------------
+    # 9) DISPLAY TABLE
+    # -------------------------
+    show_cols = [
+        "delivery_status",
+        "lot_no",
+        "part_number",
+        "part_name",
+        "model_level",
+        "plan_qty",
+        "delivered_qty",
+        "progress_pct",
+        "plan_delivery_date",
+        "plan_assembly_date",
+        "remark"
+    ]
 
-    df["Status"] = df["delivery_status"].apply(status_icon)
-
-    # =============================
-    # TABLE
-    # =============================
     st.dataframe(
-        df[
-            [
-                "lot_no",
-                "part_number",
-                "part_name",
-                "model_level",
-                "plan_qty",
-                "sent_qty",
-                "remaining_qty",
-                "Status"
-            ]
-        ].sort_values(
-            by=["delivery_status", "lot_no"],
-            ascending=[True, True]
-        ),
+        df[show_cols],
         use_container_width=True,
         height=650
-    )
-
-    st.caption(
-        "📊 Source: delivery_plan + kanban_delivery (via v_delivery_plan_summary)"
     )
 
 # =====================================================
@@ -829,6 +881,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
