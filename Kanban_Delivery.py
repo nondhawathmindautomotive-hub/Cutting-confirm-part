@@ -100,6 +100,7 @@ mode = st.sidebar.radio(
     [
         "Scan Kanban",
         "Lot Kanban Summary",
+        "Delivery Plan",
         "Kanban Delivery Log",
         "Upload Lot Master",
         "Part Tracking", 
@@ -620,6 +621,111 @@ elif mode == "Upload Lot Master":
         "📌 Logic: kanban ซ้ำ → ใช้แถวที่ข้อมูลครบกว่า | ไม่ลบของเดิม"
     )
 
+# =====================================================
+# 📅 DELIVERY PLAN (Plan vs Actual)
+# =====================================================
+elif mode == "Delivery Plan":
+
+    st.header("📅 Delivery Plan (Plan vs Actual)")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    f_date = c1.date_input("📆 Plan Delivery Date", value=None)
+    f_lot = c2.text_input("Lot No")
+    f_part = c3.text_input("Part Number (线束编号)")
+    f_status = c4.selectbox(
+        "Status",
+        ["ALL", "NOT SENT", "INCOMPLETE", "COMPLETE"],
+        format_func=lambda x: {
+            "ALL": "📦 ทั้งหมด",
+            "NOT SENT": "❌ ยังไม่ส่ง",
+            "INCOMPLETE": "🟧 ส่งไม่ครบ",
+            "COMPLETE": "✅ ส่งครบ"
+        }[x]
+    )
+
+    if not f_date:
+        st.info("กรุณาเลือกวันที่จัดส่งตามแผน")
+        st.stop()
+
+    # =============================
+    # QUERY VIEW
+    # =============================
+    query = (
+        supabase
+        .from_("v_delivery_plan_summary")
+        .select("*")
+        .eq("plan_delivery_date", str(f_date))
+    )
+
+    if f_lot:
+        query = query.eq("lot_no", f_lot.strip())
+
+    if f_part:
+        query = query.ilike("part_number", f"%{f_part.strip()}%")
+
+    if f_status != "ALL":
+        query = query.eq("delivery_status", f_status)
+
+    res = query.execute()
+    df = pd.DataFrame(res.data or [])
+
+    if df.empty:
+        st.warning("ไม่พบข้อมูลตามเงื่อนไข")
+        st.stop()
+
+    # =============================
+    # KPI
+    # =============================
+    total_plan = df["plan_qty"].sum()
+    total_sent = df["sent_qty"].sum()
+    total_remain = df["remaining_qty"].sum()
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Plan Qty", int(total_plan))
+    k2.metric("✅ Sent Qty", int(total_sent))
+    k3.metric("❌ Remaining", int(total_remain))
+
+    st.divider()
+
+    # =============================
+    # STATUS COLOR
+    # =============================
+    def status_icon(x):
+        return {
+            "NOT SENT": "❌ NOT SENT",
+            "INCOMPLETE": "🟧 INCOMPLETE",
+            "COMPLETE": "✅ COMPLETE"
+        }.get(x, x)
+
+    df["Status"] = df["delivery_status"].apply(status_icon)
+
+    # =============================
+    # TABLE
+    # =============================
+    st.dataframe(
+        df[
+            [
+                "lot_no",
+                "part_number",
+                "part_name",
+                "model_level",
+                "plan_qty",
+                "sent_qty",
+                "remaining_qty",
+                "Status"
+            ]
+        ].sort_values(
+            by=["delivery_status", "lot_no"],
+            ascending=[True, True]
+        ),
+        use_container_width=True,
+        height=650
+    )
+
+    st.caption(
+        "📊 Source: delivery_plan + kanban_delivery (via v_delivery_plan_summary)"
+    )
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -723,6 +829,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
