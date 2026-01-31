@@ -78,53 +78,53 @@ if mode == "Scan Kanban":
     st.header("✅ Scan Kanban ")
 
    def confirm_scan():
-    kanban = norm(st.session_state.scan)
-    if not kanban:
-        return
+        kanban = norm(st.session_state.scan)
+        if not kanban:
+            return
 
     # 1) เช็คสแกนซ้ำ
     exist = (
-        supabase.table("kanban_delivery")
-        .select("kanban_no")
-        .eq("kanban_no", kanban)
-        .limit(1)
-        .execute()
-        .data
-    )
+            supabase.table("kanban_delivery")
+            .select("kanban_no")
+            .eq("kanban_no", kanban)
+            .limit(1)
+            .execute()
+            .data
+        )
 
     # 2) ถ้าเคยสแกนแล้ว → ไม่ต้องเรียก RPC
-    if exist:
-        st.session_state.msg = (
-            "warning",
-            "⚠️ Kanban นี้ถูกสแกนแล้ว\n"
-            "📦 ไม่สามารถส่งซ้ำได้"
-        )
-        st.session_state.scan = ""
-        return
+        if exist:
+            st.session_state.msg = (
+                "warning",
+                "⚠️ Kanban นี้ถูกสแกนแล้ว\n"
+                "📦 ไม่สามารถส่งซ้ำได้"
+            )
+            st.session_state.scan = ""
+            return
 
     # 3) เรียก RPC เฉพาะกรณีสแกนใหม่
-    rpc_res = supabase.rpc(
-        "rpc_complete_kanban_bundle",
-        {"p_kanban_no": kanban}
-    ).execute()
+        rpc_res = supabase.rpc(
+            "rpc_complete_kanban_bundle",
+            {"p_kanban_no": kanban}
+        ).execute()
 
-    bundle_count = len(rpc_res.data or [])
+        bundle_count = len(rpc_res.data or [])
 
     # 4) แสดงผล
-    if bundle_count > 1:
-        st.session_state.msg = (
-            "success",
-            f"✅ ส่ง Kanban สำเร็จ\n"
-            f"📦 ชุดเดียวกันถูก Complete พร้อมกัน {bundle_count} ใบ"
-        )
-    else:
-        st.session_state.msg = (
-            "success",
-            "✅ ส่ง Kanban สำเร็จ\n"
-            "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
-        )
+        if bundle_count > 1:
+            st.session_state.msg = (
+                "success",
+                f"✅ ส่ง Kanban สำเร็จ\n"
+                f"📦 ชุดเดียวกันถูก Complete พร้อมกัน {bundle_count} ใบ"
+            )
+        else:
+            st.session_state.msg = (
+                "success",
+                "✅ ส่ง Kanban สำเร็จ\n"
+                "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
+            )
 
-    st.session_state.scan = ""
+        st.session_state.scan = ""
 
 
     # =============================
@@ -641,6 +641,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
