@@ -121,9 +121,9 @@ if mode == "Scan Kanban":
         if not kanban:
             return
 
-        # -------------------------
-        # 1) เช็คว่าเคยสแกนแล้วไหม
-        # -------------------------
+    # -------------------------
+    # 1) เช็คว่าเคยสแกนแล้วไหม
+    # -------------------------
         exist = (
             supabase.table("kanban_delivery")
             .select("kanban_no")
@@ -133,46 +133,56 @@ if mode == "Scan Kanban":
             .data
         )
 
-        # -------------------------
-        # 2) เรียก RPC bundle
-        # -------------------------
-        rpc_res = supabase.rpc(
-            "rpc_complete_kanban_bundle",
-            {"p_kanban_no": kanban}
-        ).execute()
-
-        bundle_df = pd.DataFrame(rpc_res.data or [])
-        bundle_count = len(bundle_df)
-
-        # -------------------------
-        # 3) MESSAGE + COLOR LOGIC
-        # -------------------------
+    # =========================
+    # ❌ ถ้าเคยสแกนแล้ว → จบเลย
+    # =========================
         if exist:
-            # 🟧 สแกนซ้ำ
             st.session_state.msg = (
                 "orange",
                 "⚠️ Kanban นี้ถูกสแกนแล้ว<br>"
                 "📦 ไม่สามารถส่งซ้ำได้"
             )
-        else:
-            # ✅ สแกนใหม่
-            if bundle_count > 1:
-                # 🟦 มีพ่วง
-                st.session_state.msg = (
-                    "blue",
-                    f"✅ ส่ง Kanban สำเร็จ<br>"
-                    f"🧩 ชุดพ่วง ถูก Complete พร้อมกัน {bundle_count} ใบ"
-                )
-            else:
-                # 🟩 ไม่มีพ่วง
-                st.session_state.msg = (
-                    "green",
-                    "✅ ส่ง Kanban สำเร็จ<br>"
-                    "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
-                )
+            st.session_state.scan = ""
+            return
 
-        # clear ช่อง scan
+    # -------------------------
+    # 2) เรียก RPC เฉพาะ Scan ใหม่
+    # -------------------------
+        try:
+            rpc_res = supabase.rpc(
+                "rpc_complete_kanban_bundle",
+                {"p_kanban_no": kanban}
+            ).execute()
+        except Exception as e:
+            st.session_state.msg = (
+                "orange",
+                "❌ ระบบไม่สามารถ Complete Kanban ได้<br>"
+                "กรุณาติดต่อ หัวหน้างาน"
+            )
+            st.session_state.scan = ""
+            return
+
+        bundle_df = pd.DataFrame(rpc_res.data or [])
+        bundle_count = len(bundle_df)
+
+    # -------------------------
+    # 3) MESSAGE
+    # -------------------------
+        if bundle_count > 1:
+            st.session_state.msg = (
+                "blue",
+                f"✅ ส่ง Kanban สำเร็จ<br>"
+                f"🧩 ชุดพ่วง ถูก Complete พร้อมกัน {bundle_count} ใบ"
+            )
+        else:
+            st.session_state.msg = (
+                "green",
+                "✅ ส่ง Kanban สำเร็จ<br>"
+                "📦 Kanban เดี่ยว (ไม่มีพ่วง)"
+            )
+
         st.session_state.scan = ""
+
 
     # =============================
     # INPUT
@@ -703,6 +713,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
