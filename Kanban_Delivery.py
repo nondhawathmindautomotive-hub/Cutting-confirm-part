@@ -624,28 +624,31 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 📅 DELIVERY PLAN (Plan vs Actual)
 # =====================================================
-# 📅 DELIVERY PLAN (PLAN vs ACTUAL) – KANBAN DRIVEN
+# 📅 DELIVERY PLAN (KANBAN-DRIVEN : PLAN vs ACTUAL)
 # =====================================================
 if mode == "Delivery Plan":
 
     st.header("📅 Delivery Plan (Plan vs Actual)")
 
     # -------------------------
-    # 🔍 SEARCH + DATE FILTER
+    # 🔍 SEARCH
     # -------------------------
-    col_s, col_d1, col_d2 = st.columns([2, 1, 1])
+    keyword = st.text_input(
+        "🔍 ค้นหา (Lot / Part / Model)",
+        placeholder="พิมพ์ lot, part number หรือ model"
+    )
 
-    with col_s:
-        keyword = st.text_input(
-            "🔍 ค้นหา (Lot / Part / Model)",
-            placeholder="พิมพ์ lot, part number หรือ model"
-        )
-
-    with col_d1:
+    # -------------------------
+    # 📅 DATE FILTER
+    # -------------------------
+    c1, c2 = st.columns(2)
+    with c1:
         date_from = st.date_input("📅 Plan Delivery From")
-
-    with col_d2:
+    with c2:
         date_to = st.date_input("📅 Plan Delivery To")
+
+    date_from_str = date_from.strftime("%Y-%m-%d")
+    date_to_str = date_to.strftime("%Y-%m-%d")
 
     # -------------------------
     # 1) LOAD DELIVERY PLAN
@@ -661,8 +664,8 @@ if mode == "Delivery Plan":
             plan_assembly_date,
             remark
         """)
-        .gte("plan_delivery_date", str(date_from))
-        .lte("plan_delivery_date", str(date_to))
+        .gte("plan_delivery_date", date_from_str)
+        .lte("plan_delivery_date", date_to_str)
         .execute()
     )
 
@@ -672,58 +675,100 @@ if mode == "Delivery Plan":
         st.stop()
 
     # -------------------------
-    # 2) LOAD KANBAN MASTER
+    # 2) LOAD PLAN KANBAN (SOURCE OF TRUTH)
     # -------------------------
-    kanban_res = (
-        supabase.table("lot_master")
+    plan_kb_res = (
+        supabase.table("kanban_master")
         .select("""
             kanban_no,
             lot_no,
-            part_number,
-            wire_harness_code
+            part_number
         """)
         .execute()
     )
 
-    df_kb = pd.DataFrame(kanban_res.data or [])
-    if df_kb.empty:
-        st.warning("⚠️ ไม่พบข้อมูล Kanban")
+    df_plan_kb = pd.DataFrame(plan_kb_res.data or [])
+    if df_plan_kb.empty:
+        st.warning("⚠️ ไม่พบข้อมูล Kanban Plan")
         st.stop()
 
     # -------------------------
     # 3) LOAD ACTUAL DELIVERY
     # -------------------------
-    delivery_res = (
+    actual_res = (
         supabase.table("kanban_delivery")
-        .select("kanban_no, delivery_date")
+        .select("""
+            kanban_no,
+            lot_no,
+            part_number,
+            delivered_at
+        """)
         .execute()
     )
 
-    df_del = pd.DataFrame(delivery_res.data or [])
-    if df_del.empty:
-        df_del = pd.DataFrame(columns=["kanban_no", "delivery_date"])
+    df_actual = pd.DataFrame(actual_res.data or [])
 
     # -------------------------
-    # 4) MERGE → KANBAN STATUS
+    # 4) AGGREGATE (KANBAN-DRIVEN)
     # -------------------------
-    df_k = df_kb.merge(
-        df_del,
-        on="kanban_no",
-        how="left"
+    # PLAN = COUNT KANBAN
+    df_plan_qty = (
+        df_plan_kb
+        .groupby(["lot_no", "part_number"])
+        .size()
+        .reset_index(name="plan_qty")
     )
 
-    df_k["kanban_status"] = df_k["delivery_date"].apply(
-        lambda x: "🟢 Sent" if pd.notna(x) else "🔴 Pending"
-    )
+    # ACTUAL = COUNT DELIVERED KANBAN
+    if not df_actual.empty:
+        df_actual_qty = (
+            df_actual
+            .groupby(["lot_no", "part_number"])
+            .size()
+            .reset_index(name="delivered_qty")
+        )
+    else:
+        df_actual_qty = pd.DataFrame(
+            columns=["lot_no", "part_number", "delivered_qty"]
+        )
 
     # -------------------------
-    # 5) LINK PLAN ↔ KANBAN
+    # 5) MERGE ALL
     # -------------------------
-    df = df_plan.merge(
-        df_k,
-        on=["lot_no", "part_number"],
-        how="left"
+    df = (
+        df_plan
+        .merge(df_plan_qty, on=["lot_no", "part_number"], how="left")
+        .merge(df_actual_qty, on=["lot_no", "part_number"], how="left")
     )
+
+    df["plan_qty"] = df["plan_qty"].fillna(0).astype(int)
+    df["delivered_qty"] = df["delivered_qty"].fillna(0).astype(int)
+
+    # -------------------------
+    # 6) DELIVERY STATUS
+    # -------------------------
+    df["delivery_status"] = df.apply(
+        lambda r: (
+            "🟢 Delivered" if r["delivered_qty"] >= r["plan_qty"] and r["plan_qty"] > 0
+            else "🟡 Partial" if r["delivered_qty"] > 0
+            else "🔴 Pending"
+        ),
+        axis=1
+    )
+
+    status_order = {
+        "🔴 Pending": 0,
+        "🟡 Partial": 1,
+        "🟢 Delivered": 2
+    }
+    df["status_order"] = df["delivery_status"].map(status_order)
+
+    # -------------------------
+    # 7) PROGRESS %
+    # -------------------------
+    df["progress_pct"] = (
+        (df["delivered_qty"] / df["plan_qty"]) * 100
+    ).replace([float("inf"), float("nan")], 0).round(1)
 
     # -------------------------
     # 🔍 APPLY SEARCH
@@ -737,120 +782,102 @@ if mode == "Delivery Plan":
         ]
 
     # -------------------------
-    # 6) SUMMARY (KANBAN-DRIVEN KPI)
+    # 8) SORT
     # -------------------------
-    summary = (
-        df
-        .groupby([
-            "lot_no",
-            "part_number",
-            "part_name",
-            "model_level",
-            "plan_delivery_date",
-            "plan_assembly_date",
-            "remark"
-        ])
-        .agg(
-            total_kanban=("kanban_no", "count"),
-            delivered=("kanban_status", lambda x: (x == "🟢 Sent").sum())
-        )
-        .reset_index()
-    )
-
-    summary["progress_pct"] = (
-        summary["delivered"] / summary["total_kanban"] * 100
-    ).round(1).fillna(0)
-
-    summary["delivery_status"] = summary.apply(
-        lambda r: (
-            "🟢 Delivered" if r["delivered"] >= r["total_kanban"] and r["total_kanban"] > 0
-            else "🟡 Partial" if r["delivered"] > 0
-            else "🔴 Pending"
-        ),
-        axis=1
-    )
-
-    status_order = {
-        "🔴 Pending": 0,
-        "🟡 Partial": 1,
-        "🟢 Delivered": 2
-    }
-    summary["status_order"] = summary["delivery_status"].map(status_order)
-
-    summary = summary.sort_values(
+    df = df.sort_values(
         by=["status_order", "plan_delivery_date", "lot_no"],
         ascending=[True, True, True]
     )
 
     # -------------------------
-    # 7) KPI (KANBAN REAL)
+    # 9) KPI (KANBAN-BASED)
     # -------------------------
     c1, c2, c3 = st.columns(3)
 
-    c1.metric("📦 Total Kanban", int(summary["total_kanban"].sum()))
-    c2.metric("✅ Delivered", int(summary["delivered"].sum()))
+    c1.metric("📦 Planned Kanban", int(df["plan_qty"].sum()))
+    c2.metric("✅ Delivered Kanban", int(df["delivered_qty"].sum()))
 
     overall = (
-        summary["delivered"].sum() /
-        summary["total_kanban"].sum() * 100
-        if summary["total_kanban"].sum() > 0 else 0
+        df["delivered_qty"].sum() /
+        df["plan_qty"].sum() * 100
+        if df["plan_qty"].sum() > 0 else 0
     )
-
     c3.metric("📊 Progress", f"{overall:.1f}%")
 
     st.divider()
 
     # -------------------------
-    # 8) MAIN SUMMARY TABLE
+    # 10) MAIN TABLE
     # -------------------------
-    st.subheader("📊 Delivery Summary (Kanban-based)")
+    show_cols = [
+        "delivery_status",
+        "lot_no",
+        "part_number",
+        "part_name",
+        "model_level",
+        "plan_qty",
+        "delivered_qty",
+        "progress_pct",
+        "plan_delivery_date",
+        "plan_assembly_date",
+        "remark"
+    ]
 
     st.dataframe(
-        summary[
-            [
-                "delivery_status",
-                "lot_no",
-                "part_number",
-                "part_name",
-                "model_level",
-                "total_kanban",
-                "delivered",
-                "progress_pct",
-                "plan_delivery_date",
-                "plan_assembly_date",
-                "remark"
-            ]
-        ],
+        df[show_cols],
         use_container_width=True,
         height=450
     )
 
-    # -------------------------
-    # 9) DRILL DOWN – KANBAN DETAIL
-    # -------------------------
-    st.subheader("🧩 Drill Down – Kanban Detail")
+    # =====================================================
+    # 🔎 DRILL DOWN : KANBAN DETAIL (LIKE LOT KANBAN SUMMARY)
+    # =====================================================
+    st.subheader("🔎 Drill-down : Kanban Detail")
 
     selected_lot = st.selectbox(
         "เลือก Lot",
-        [""] + sorted(summary["lot_no"].astype(str).unique())
+        [""] + sorted(df["lot_no"].unique())
     )
 
-    if selected_lot:
-        df_detail = df_k[df_k["lot_no"].astype(str) == selected_lot]
+    selected_part = st.selectbox(
+        "เลือก Part Number",
+        [""] + sorted(df["part_number"].unique())
+    )
+
+    if selected_lot and selected_part:
+
+        df_kb = df_plan_kb[
+            (df_plan_kb["lot_no"] == selected_lot) &
+            (df_plan_kb["part_number"] == selected_part)
+        ].copy()
+
+        if not df_actual.empty:
+            df_kb = df_kb.merge(
+                df_actual[["kanban_no", "delivered_at"]],
+                on="kanban_no",
+                how="left"
+            )
+        else:
+            df_kb["delivered_at"] = None
+
+        df_kb["status"] = df_kb["delivered_at"].apply(
+            lambda x: "✅ Delivered" if pd.notna(x) else "❌ Pending"
+        )
+
+        df_kb = df_kb.sort_values("status")
 
         st.dataframe(
-            df_detail[
-                [
-                    "kanban_no",
-                    "part_number",
-                    "wire_harness_code",
-                    "kanban_status",
-                    "delivery_date"
-                ]
-            ],
+            df_kb[[
+                "kanban_no",
+                "lot_no",
+                "part_number",
+                "status",
+                "delivered_at"
+            ]],
             use_container_width=True,
             height=400
         )
+
 
 
 # =====================================================
@@ -955,6 +982,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
