@@ -676,8 +676,7 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 📅 DELIVERY PLAN (Plan vs Actual)
 # =====================================================
-# =====================================================
-# 📅 DELIVERY PLAN (Plan vs Actual) — CLIENT SAFE
+# 📅 DELIVERY PLAN (Plan vs Actual)
 # =====================================================
 if mode == "Delivery Plan":
 
@@ -701,7 +700,7 @@ if mode == "Delivery Plan":
         date_to = st.date_input("📅 Plan Delivery To")
 
     # -------------------------
-    # LOAD ALL DATA (NO FILTER IN SUPABASE)
+    # LOAD DATA (CLIENT SAFE)
     # -------------------------
     res = (
         supabase
@@ -716,7 +715,9 @@ if mode == "Delivery Plan":
         st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
         st.stop()
 
-# DATE CLEAN
+    # -------------------------
+    # ✅ DATE CLEAN (ใช้ชื่อคอลัมน์จริง)
+    # -------------------------
     df["plan_delivery_dt"] = pd.to_datetime(
         df["plan_delivery_dt"],
         errors="coerce"
@@ -814,7 +815,7 @@ if mode == "Delivery Plan":
         height=520
     )
 
-    st.caption("📊 Source: v_plan_vs_actual | client-safe (no supabase filter)")
+    st.caption("📊 Source: v_plan_vs_actual | client-side filter (safe)")
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -918,6 +919,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
