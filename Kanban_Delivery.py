@@ -1,10 +1,7 @@
 import streamlit as st
 from supabase import create_client
 import pandas as pd
-from datetime import datetime
 
-date_from_dt = pd.to_datetime(date_from)
-date_to_dt   = pd.to_datetime(date_to)
 
 # =====================================================
 # PAGE CONFIG
@@ -871,6 +868,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
