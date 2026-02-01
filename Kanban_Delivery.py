@@ -375,8 +375,8 @@ if mode == "Delivery Plan":
     # -------------------------
     # DATE CLEAN (สำคัญมาก)
     # -------------------------
-    df["plan_delivery_date"] = pd.to_datetime(
-        df["plan_delivery_date"],
+    df["plan_delivery_dt"] = pd.to_datetime(
+        df["plan_delivery_dt"],
         errors="coerce"
     )
 
@@ -384,8 +384,8 @@ if mode == "Delivery Plan":
     date_to_dt   = pd.to_datetime(date_to)
 
     df = df[
-        (df["plan_delivery_date"] >= date_from_dt) &
-        (df["plan_delivery_date"] <= date_to_dt)
+        (df["plan_delivery_dt"] >= date_from_dt) &
+        (df["plan_delivery_dt"] <= date_to_dt)
     ]
 
     # -------------------------
@@ -717,8 +717,8 @@ if mode == "Delivery Plan":
         st.stop()
 
 # DATE CLEAN
-    df["plan_delivery_date"] = pd.to_datetime(
-        df["plan_delivery_date"],
+    df["plan_delivery_dt"] = pd.to_datetime(
+        df["plan_delivery_dt"],
         errors="coerce"
     )
 
@@ -726,8 +726,8 @@ if mode == "Delivery Plan":
     date_to_dt   = pd.to_datetime(date_to)
 
     df = df[
-        (df["plan_delivery_date"] >= date_from_dt) &
-        (df["plan_delivery_date"] <= date_to_dt)
+        (df["plan_delivery_dt"] >= date_from_dt) &
+        (df["plan_delivery_dt"] <= date_to_dt)
     ]
 
     # -------------------------
@@ -918,6 +918,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
