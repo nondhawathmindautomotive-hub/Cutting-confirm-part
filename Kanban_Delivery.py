@@ -332,45 +332,54 @@ elif mode == "Lot Kanban Summary":
 
 # =====================================================
 # =====================================================
-# 📅 DELIVERY PLAN (Plan vs Actual) + DRILL DOWN
+# 📅 DELIVERY PLAN (Plan vs Actual) – PRODUCTION
 # =====================================================
 elif mode == "Delivery Plan":
 
     st.header("📅 Delivery Plan (Plan vs Actual)")
+    st.caption("Kanban-driven | 1 Kanban = 1 Unit")
 
-    # -------------------------
-    # 🔍 SEARCH (UNIQUE KEY)
-    # -------------------------
+    # -------------------------------------------------
+    # 🔍 SEARCH
+    # -------------------------------------------------
     keyword = st.text_input(
-        "🔍 ค้นหา (Lot / Part / Model)",
-        placeholder="พิมพ์ lot, part number หรือ model",
-        key="dp_keyword"
+        "🔍 ค้นหา (Lot / Part Number / Model)",
+        placeholder="เช่น LOT260105, 4003120XKM15A, MODEL-A"
     )
 
-    # -------------------------
+    # -------------------------------------------------
     # 📅 DATE FILTER
-    # -------------------------
+    # -------------------------------------------------
     c1, c2 = st.columns(2)
     with c1:
-        date_from = st.date_input(
-            "📅 Plan Delivery From",
-            key="dp_date_from"
-        )
+        date_from = st.date_input("📅 Plan Delivery From")
     with c2:
-        date_to = st.date_input(
-            "📅 Plan Delivery To",
-            key="dp_date_to"
-        )
+        date_to = st.date_input("📅 Plan Delivery To")
 
-    # -------------------------
-    # LOAD DATA (VIEW = SOURCE OF TRUTH)
-    # -------------------------
-    res = (
-        supabase
-        .table("v_plan_vs_actual")
-        .select("*")
-        .execute()
-    )
+    # -------------------------------------------------
+    # LOAD DATA (DB = SOURCE OF TRUTH)
+    # -------------------------------------------------
+    try:
+        res = (
+            supabase
+            .table("v_plan_vs_actual")
+            .select("""
+                lot_no,
+                part_number,
+                part_name,
+                model_level,
+                plan_delivery_dt,
+                plan_assembly_date,
+                remark,
+                plan_qty,
+                actual_qty,
+                last_delivered_at
+            """)
+            .execute()
+        )
+    except Exception as e:
+        st.error(f"❌ Load Delivery Plan failed: {e}")
+        st.stop()
 
     df = pd.DataFrame(res.data or [])
 
@@ -378,57 +387,36 @@ elif mode == "Delivery Plan":
         st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
         st.stop()
 
-    # -------------------------
-    # NORMALIZE LOT (KEY FIX)
-    # -------------------------
-    def norm_lot(x):
-        return (
-            str(x)
-            .replace(".0", "")
-            .replace("-", "")
-            .replace("/", "")
-            .replace("_", "")
-            .replace(" ", "")
-            .strip()
-        )
-
-    df["lot_norm"] = df["lot_no"].apply(norm_lot)
-
-    # -------------------------
+    # -------------------------------------------------
     # DATE CLEAN
-    # -------------------------
+    # -------------------------------------------------
     df["plan_delivery_dt"] = pd.to_datetime(
-        df["plan_delivery_dt"],
-        errors="coerce"
+        df["plan_delivery_dt"], errors="coerce"
     )
 
-    date_from_dt = pd.to_datetime(date_from)
-    date_to_dt   = pd.to_datetime(date_to)
-
     df = df[
-        (df["plan_delivery_dt"] >= date_from_dt) &
-        (df["plan_delivery_dt"] <= date_to_dt)
+        (df["plan_delivery_dt"] >= pd.to_datetime(date_from)) &
+        (df["plan_delivery_dt"] <= pd.to_datetime(date_to))
     ]
 
-    # -------------------------
-    # KEYWORD FILTER (LOT FIRST)
-    # -------------------------
+    # -------------------------------------------------
+    # KEYWORD FILTER (Lot / Part / Model)
+    # -------------------------------------------------
     if keyword:
-        kw_norm = norm_lot(keyword)
-
+        kw = keyword.strip().lower()
         df = df[
-            df["lot_norm"].str.startswith(kw_norm) |
-            df["part_number"].astype(str).str.contains(keyword, case=False, na=False) |
-            df["model_level"].astype(str).str.contains(keyword, case=False, na=False)
+            df["lot_no"].astype(str).str.lower().str.contains(kw) |
+            df["part_number"].astype(str).str.lower().str.contains(kw) |
+            df["model_level"].astype(str).str.lower().str.contains(kw)
         ]
 
     if df.empty:
-        st.warning("⚠️ ไม่พบข้อมูลตามเงื่อนไข")
+        st.warning("⚠️ ไม่พบข้อมูลตามเงื่อนไขที่เลือก")
         st.stop()
 
-    # -------------------------
-    # CALCULATION
-    # -------------------------
+    # -------------------------------------------------
+    # CALCULATION (READ-ONLY)
+    # -------------------------------------------------
     df["actual_qty"] = df["actual_qty"].fillna(0)
 
     df["progress_pct"] = (
@@ -437,16 +425,16 @@ elif mode == "Delivery Plan":
 
     df["delivery_status"] = df.apply(
         lambda r:
-            "🟢 Completed" if r["actual_qty"] >= r["plan_qty"]
-            else "🟡 In Progress" if r["actual_qty"] > 0
-            else "🔴 Not Start",
+            "🟢 DELIVERED" if r["actual_qty"] >= r["plan_qty"]
+            else "🟡 PARTIAL" if r["actual_qty"] > 0
+            else "🔴 PENDING",
         axis=1
     )
 
     status_order = {
-        "🔴 Not Start": 0,
-        "🟡 In Progress": 1,
-        "🟢 Completed": 2
+        "🔴 PENDING": 0,
+        "🟡 PARTIAL": 1,
+        "🟢 DELIVERED": 2
     }
     df["status_order"] = df["delivery_status"].map(status_order)
 
@@ -455,26 +443,27 @@ elif mode == "Delivery Plan":
         ascending=[True, True, True]
     )
 
-    # -------------------------
+    # -------------------------------------------------
     # KPI
-    # -------------------------
+    # -------------------------------------------------
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Plan Qty", int(df["plan_qty"].sum()))
-    k2.metric("✅ Actual Qty", int(df["actual_qty"].sum()))
+
+    k1.metric("📦 Plan Kanban", int(df["plan_qty"].sum()))
+    k2.metric("✅ Delivered Kanban", int(df["actual_qty"].sum()))
 
     overall = (
         df["actual_qty"].sum()
         / df["plan_qty"].sum() * 100
         if df["plan_qty"].sum() > 0 else 0
     )
-    k3.metric("📊 Achievement", f"{overall:.1f}%")
+    k3.metric("📊 Overall Progress", f"{overall:.1f}%")
 
     st.divider()
 
-    # -------------------------
-    # MASTER TABLE
-    # -------------------------
-    st.subheader("📋 Plan Summary")
+    # -------------------------------------------------
+    # 📋 MAIN TABLE
+    # -------------------------------------------------
+    st.subheader("📋 Delivery Plan Summary")
 
     st.dataframe(
         df[
@@ -482,55 +471,68 @@ elif mode == "Delivery Plan":
                 "delivery_status",
                 "lot_no",
                 "part_number",
+                "part_name",
                 "model_level",
                 "plan_qty",
                 "actual_qty",
                 "progress_pct",
                 "plan_delivery_dt",
-                "last_delivered_at",
+                "plan_assembly_date",
+                "remark",
+                "last_delivered_at"
             ]
         ],
         use_container_width=True,
-        height=420
+        height=460
     )
 
-    st.caption("📊 Source: v_plan_vs_actual")
+    st.caption("📊 Source: v_plan_vs_actual | Kanban-driven")
 
-    # =====================================================
-    # 🔍 DRILL DOWN
-    # =====================================================
+    # =================================================
+    # 🔎 DRILL DOWN – KANBAN NOT DELIVERED
+    # =================================================
     st.divider()
-    st.subheader("🔎 Drill Down (Lot → Kanban Detail)")
+    st.subheader("🔎 Drill Down : Kanban ยังไม่ส่ง")
 
     lot_list = sorted(df["lot_no"].unique().tolist())
+    part_list = sorted(df["part_number"].unique().tolist())
 
-    selected_lot = st.selectbox(
-        "เลือก Lot เพื่อดู Kanban ที่ส่งจริง",
-        lot_list,
-        key="dp_drill_lot"
+    c1, c2 = st.columns(2)
+    selected_lot = c1.selectbox("Lot", lot_list)
+    selected_part = c2.selectbox("Part Number", part_list)
+
+    show_all = st.checkbox(
+        "แสดง Kanban ทั้งหมด (รวมที่ส่งแล้ว)",
+        value=False
     )
 
-    if selected_lot:
+    if selected_lot and selected_part:
 
         with st.spinner("⏳ โหลดข้อมูล Kanban..."):
+            try:
+                detail_res = supabase.rpc(
+                    "rpc_part_tracking_lot_harness",
+                    {
+                        "p_lot_no": selected_lot,
+                        "p_harness_part_no": selected_part
+                    }
+                ).execute()
+            except Exception as e:
+                st.error(f"❌ Load Kanban detail failed: {e}")
+                st.stop()
 
-            detail_res = supabase.rpc(
-                "rpc_part_tracking_lot_harness",
-                {
-                    "p_lot_no": selected_lot,
-                    "p_harness_part_no": None
-                }
-            ).execute()
-
-            ddf = pd.DataFrame(detail_res.data or [])
+        ddf = pd.DataFrame(detail_res.data or [])
 
         if ddf.empty:
-            st.warning("ไม่พบ Kanban สำหรับ Lot นี้")
+            st.warning("ไม่พบ Kanban สำหรับ Lot / Part นี้")
         else:
             ddf["Delivered At (GMT+7)"] = ddf["delivered_at"].apply(to_gmt7)
             ddf["Status"] = ddf["sent"].apply(
                 lambda x: "✅ Sent" if x else "⏳ Remaining"
             )
+
+            if not show_all:
+                ddf = ddf[ddf["sent"] == False]
 
             st.dataframe(
                 ddf[
@@ -543,16 +545,14 @@ elif mode == "Delivery Plan":
                         "Delivered At (GMT+7)"
                     ]
                 ].sort_values(
-                    by="Delivered At (GMT+7)",
-                    ascending=False,
-                    na_position="last"
+                    by="kanban_no"
                 ),
                 use_container_width=True,
-                height=400
+                height=420
             )
 
             st.caption(
-                f"📦 Drill Down Lot {selected_lot} | Source: kanban_delivery + lot_master"
+                f"📦 Lot {selected_lot} | Part {selected_part} | Remaining-first view"
             )
 
 # =====================================================
@@ -997,6 +997,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
