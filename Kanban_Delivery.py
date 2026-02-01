@@ -357,11 +357,11 @@ if mode == "Delivery Plan":
         date_to = st.date_input("📅 Plan Delivery To")
 
     # -------------------------
-    # LOAD DATA (CLIENT SAFE)
+    # LOAD DATA
     # -------------------------
     res = (
         supabase
-        .table("v_plan_vs_actual")
+        .table("delivery_plan")   # หรือ view ที่คุณใช้จริง
         .select("*")
         .execute()
     )
@@ -373,10 +373,11 @@ if mode == "Delivery Plan":
         st.stop()
 
     # -------------------------
-    # DATE CLEAN (สำคัญมาก)
+    # ✅ FIX DATE TYPE (จุดสำคัญที่สุด)
     # -------------------------
-    df["plan_delivery_dt"] = pd.to_datetime(
-        df["plan_delivery_dt"],
+    df["plan_delivery_date"] = pd.to_datetime(
+        df["plan_delivery_date"],
+        format="%m/%d/%Y",   # <<<<<< สำคัญ
         errors="coerce"
     )
 
@@ -384,12 +385,12 @@ if mode == "Delivery Plan":
     date_to_dt   = pd.to_datetime(date_to)
 
     df = df[
-        (df["plan_delivery_dt"] >= date_from_dt) &
-        (df["plan_delivery_dt"] <= date_to_dt)
+        (df["plan_delivery_date"] >= date_from_dt) &
+        (df["plan_delivery_date"] <= date_to_dt)
     ]
 
     # -------------------------
-    # KEYWORD FILTER
+    # 🔍 KEYWORD FILTER
     # -------------------------
     if keyword:
         kw = keyword.lower()
@@ -404,77 +405,26 @@ if mode == "Delivery Plan":
         st.stop()
 
     # -------------------------
-    # CALCULATION
-    # -------------------------
-    df["actual_qty"] = df["actual_qty"].fillna(0)
-
-    df["progress_pct"] = (
-        df["actual_qty"] / df["plan_qty"] * 100
-    ).round(1)
-
-    df["delivery_status"] = df.apply(
-        lambda r:
-            "🟢 Completed" if r["actual_qty"] >= r["plan_qty"]
-            else "🟡 In Progress" if r["actual_qty"] > 0
-            else "🔴 Not Start",
-        axis=1
-    )
-
-    status_order = {
-        "🔴 Not Start": 0,
-        "🟡 In Progress": 1,
-        "🟢 Completed": 2
-    }
-    df["status_order"] = df["delivery_status"].map(status_order)
-
-    # -------------------------
-    # SORT (ใช้ชื่อคอลัมน์จริง)
-    # -------------------------
-    df = df.sort_values(
-        by=["status_order", "plan_delivery_date", "lot_no"],
-        ascending=[True, True, True]
-    )
-
-    # -------------------------
-    # KPI
-    # -------------------------
-    c1, c2, c3 = st.columns(3)
-    c1.metric("📦 Plan Qty", int(df["plan_qty"].sum()))
-    c2.metric("✅ Actual Qty", int(df["actual_qty"].sum()))
-
-    overall = (
-        df["actual_qty"].sum()
-        / df["plan_qty"].sum() * 100
-        if df["plan_qty"].sum() > 0 else 0
-    )
-    c3.metric("📊 Achievement", f"{overall:.1f}%")
-
-    st.divider()
-
-    # -------------------------
-    # TABLE
+    # DISPLAY
     # -------------------------
     st.dataframe(
         df[
             [
-                "delivery_status",
                 "lot_no",
                 "part_number",
+                "part_name",
                 "model_level",
                 "plan_qty",
-                "actual_qty",
-                "progress_pct",
                 "plan_delivery_date",
-                "last_delivered_at",
+                "plan_assembly_date",
+                "remark",
             ]
         ],
         use_container_width=True,
-        height=520
+        height=550
     )
 
-    st.caption("📊 Source: v_plan_vs_actual | client-side filter (safe)")
-
-
+    st.caption("📊 Source: delivery_plan")
 
 
 # =====================================================
@@ -919,6 +869,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
