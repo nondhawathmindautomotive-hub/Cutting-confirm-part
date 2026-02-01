@@ -639,6 +639,17 @@ if mode == "Delivery Plan":
     )
 
     # -------------------------
+    # 📅 DATE FILTER
+    # -------------------------
+    cdf1, cdf2 = st.columns(2)
+
+    with cdf1:
+        plan_date_from = st.date_input("📅 Plan Delivery From")
+
+    with cdf2:
+        plan_date_to = st.date_input("📅 Plan Delivery To")
+
+    # -------------------------
     # 1) LOAD DELIVERY PLAN
     # -------------------------
     plan_res = (
@@ -661,25 +672,31 @@ if mode == "Delivery Plan":
         st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
         st.stop()
 
+    df_plan["plan_delivery_date"] = pd.to_datetime(
+        df_plan["plan_delivery_date"]
+    ).dt.date
+
     # -------------------------
     # 2) LOAD ACTUAL DELIVERY
     # -------------------------
     actual_res = (
         supabase.table("kanban_delivery")
-        .select("lot_no, kanban_no")
+        .select("lot_no, part_number, kanban_no")
         .execute()
     )
 
     df_actual = pd.DataFrame(actual_res.data or [])
     if df_actual.empty:
-        df_actual = pd.DataFrame(columns=["lot_no", "kanban_no"])
+        df_actual = pd.DataFrame(
+            columns=["lot_no", "part_number", "kanban_no"]
+        )
 
     # -------------------------
-    # 3) AGGREGATE ACTUAL
+    # 3) AGGREGATE ACTUAL (LOT + PART)
     # -------------------------
     df_actual_qty = (
         df_actual
-        .groupby("lot_no")
+        .groupby(["lot_no", "part_number"])
         .size()
         .reset_index(name="delivered_qty")
     )
@@ -687,15 +704,21 @@ if mode == "Delivery Plan":
     # -------------------------
     # 4) MERGE PLAN vs ACTUAL
     # -------------------------
-    df = df_plan.merge(df_actual_qty, on="lot_no", how="left")
+    df = df_plan.merge(
+        df_actual_qty,
+        on=["lot_no", "part_number"],
+        how="left"
+    )
+
     df["delivered_qty"] = df["delivered_qty"].fillna(0)
+    df["pending_qty"] = df["plan_qty"] - df["delivered_qty"]
 
     # -------------------------
     # 5) DELIVERY STATUS
     # -------------------------
     df["delivery_status"] = df.apply(
         lambda r: (
-            "🟢 Delivered" if r["delivered_qty"] >= r["plan_qty"]
+            "🟢 Delivered" if r["pending_qty"] <= 0
             else "🟡 Partial" if r["delivered_qty"] > 0
             else "🔴 Pending"
         ),
@@ -715,6 +738,15 @@ if mode == "Delivery Plan":
     df["progress_pct"] = (
         (df["delivered_qty"] / df["plan_qty"]) * 100
     ).round(1).fillna(0)
+
+    # -------------------------
+    # 📅 APPLY DATE FILTER
+    # -------------------------
+    if plan_date_from:
+        df = df[df["plan_delivery_date"] >= plan_date_from]
+
+    if plan_date_to:
+        df = df[df["plan_delivery_date"] <= plan_date_to]
 
     # -------------------------
     # 🔍 APPLY SEARCH
@@ -754,12 +786,20 @@ if mode == "Delivery Plan":
     st.divider()
 
     # -------------------------
-    # 9) SELECT LOT (DRILL DOWN)
+    # 9) SELECT LOT → PART (DRILL DOWN)
     # -------------------------
     selected_lot = st.selectbox(
-        "🧩 เลือก Lot เพื่อดู Kanban ที่ยังไม่ส่ง",
+        "🧩 เลือก Lot",
         [""] + sorted(df["lot_no"].astype(str).unique())
     )
+
+    if selected_lot:
+        df_lot = df[df["lot_no"].astype(str) == selected_lot]
+
+        selected_part = st.selectbox(
+            "🔗 เลือก Part Number",
+            [""] + sorted(df_lot["part_number"].unique())
+        )
 
     # -------------------------
     # 10) MAIN TABLE
@@ -772,6 +812,7 @@ if mode == "Delivery Plan":
         "model_level",
         "plan_qty",
         "delivered_qty",
+        "pending_qty",
         "progress_pct",
         "plan_delivery_date",
         "plan_assembly_date",
@@ -781,38 +822,46 @@ if mode == "Delivery Plan":
     st.dataframe(
         df[show_cols],
         use_container_width=True,
-        height=500
+        height=420
     )
 
-    # =====================================================
-    # 🔎 DRILL DOWN : PENDING KANBAN
-    # =====================================================
-    if selected_lot:
+    # -------------------------
+    # 11) 📄 PENDING KANBAN (FINAL DRILL DOWN)
+    # -------------------------
+    if selected_lot and selected_part:
+        st.subheader("📄 Kanban ที่ยังไม่ส่ง")
 
-        st.subheader(f"📦 Kanban ที่ยังไม่ส่ง | Lot {selected_lot}")
+        delivered_set = set(
+            df_actual[
+                (df_actual["lot_no"].astype(str) == selected_lot) &
+                (df_actual["part_number"] == selected_part)
+            ]["kanban_no"]
+        )
 
-        pending_res = (
-            supabase.table("lot_master")
+        plan_kanban_res = (
+            supabase.table("kanban_master")
             .select("kanban_no")
             .eq("lot_no", selected_lot)
+            .eq("part_number", selected_part)
             .execute()
         )
 
-        df_all_kanban = pd.DataFrame(pending_res.data or [])
+        df_plan_kb = pd.DataFrame(plan_kanban_res.data or [])
 
-        df_pending = df_all_kanban[
-            ~df_all_kanban["kanban_no"].isin(df_actual["kanban_no"])
-        ]
-
-        if df_pending.empty:
-            st.success("🎉 Lot นี้ส่งครบแล้ว")
+        if df_plan_kb.empty:
+            st.info("ไม่พบ Kanban สำหรับ Part นี้")
         else:
-            st.error(f"❌ ยังไม่ส่ง {len(df_pending)} ใบ")
-            st.dataframe(
-                df_pending,
-                use_container_width=True,
-                height=300
-            )
+            df_pending_kb = df_plan_kb[
+                ~df_plan_kb["kanban_no"].isin(delivered_set)
+            ]
+
+            if df_pending_kb.empty:
+                st.success("✅ ส่งครบทุก Kanban แล้ว")
+            else:
+                st.dataframe(
+                    df_pending_kb,
+                    use_container_width=True
+                )
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -916,6 +965,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
