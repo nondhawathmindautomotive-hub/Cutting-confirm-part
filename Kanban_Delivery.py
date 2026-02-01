@@ -665,20 +665,26 @@ if mode == "Delivery Plan":
         st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
         st.stop()
 
-    # -------------------------
-    # DATE CLEAN
-    # -------------------------
+# -------------------------
+# DATE CLEAN (PRODUCTION SAFE)
+# -------------------------
     df["plan_delivery_dt"] = pd.to_datetime(
-        df["plan_delivery_dt"]
-    ).dt.date
+        df["plan_delivery_dt"],
+        errors="coerce"
+    )
 
-    # -------------------------
-    # DATE FILTER (SAFE)
-    # -------------------------
+# แปลง date_input → datetime
+    date_from_dt = pd.to_datetime(date_from)
+    date_to_dt   = pd.to_datetime(date_to)
+
+# -------------------------
+# DATE FILTER
+# -------------------------
     df = df[
-        (df["plan_delivery_dt"] >= date_from) &
-        (df["plan_delivery_dt"] <= date_to)
+        (df["plan_delivery_dt"] >= date_from_dt) &
+        (df["plan_delivery_dt"] <= date_to_dt)
     ]
+
 
     # -------------------------
     # KEYWORD FILTER
@@ -868,6 +874,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
