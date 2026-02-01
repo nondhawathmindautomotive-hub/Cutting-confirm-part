@@ -653,10 +653,10 @@ if mode == "Delivery Plan":
     query = (
         supabase
         .table("v_plan_vs_actual")
-        .gte("plan_delivery_dt", date_from)
-        .lte("plan_delivery_dt", date_to)
+        .filter("plan_delivery_dt", "gte", str(date_from))
+        .filter("plan_delivery_dt", "lte", str(date_to))
     )
-
+    
     if keyword:
         query = query.or_(
             f"lot_no.ilike.%{keyword}%,"
@@ -844,6 +844,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
