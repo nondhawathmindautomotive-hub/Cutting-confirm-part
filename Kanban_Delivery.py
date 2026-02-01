@@ -624,7 +624,8 @@ elif mode == "Upload Lot Master":
 # =====================================================
 # 📅 DELIVERY PLAN (Plan vs Actual)
 # =====================================================
-# 📅 DELIVERY PLAN (PLAN vs ACTUAL) — SAFE VERSION
+# =====================================================
+# 📅 DELIVERY PLAN (Plan vs Actual) — CLIENT SAFE
 # =====================================================
 if mode == "Delivery Plan":
 
@@ -639,7 +640,7 @@ if mode == "Delivery Plan":
     )
 
     # -------------------------
-    # 📅 DATE FILTER (DATE ↔ DATE)
+    # 📅 DATE FILTER
     # -------------------------
     c1, c2 = st.columns(2)
     with c1:
@@ -648,27 +649,49 @@ if mode == "Delivery Plan":
         date_to = st.date_input("📅 Plan Delivery To")
 
     # -------------------------
-    # LOAD FROM VIEW (NO JOIN IN PYTHON)
+    # LOAD ALL DATA (NO FILTER IN SUPABASE)
     # -------------------------
-    query = (
+    res = (
         supabase
         .table("v_plan_vs_actual")
-        .filter("plan_delivery_dt", "gte", str(date_from))
-        .filter("plan_delivery_dt", "lte", str(date_to))
+        .select("*")
+        .execute()
     )
-    
-    if keyword:
-        query = query.or_(
-            f"lot_no.ilike.%{keyword}%,"
-            f"part_number.ilike.%{keyword}%,"
-            f"model_level.ilike.%{keyword}%"
-        )
 
-    res = query.execute()
     df = pd.DataFrame(res.data or [])
 
     if df.empty:
         st.warning("⚠️ ไม่พบข้อมูล Delivery Plan")
+        st.stop()
+
+    # -------------------------
+    # DATE CLEAN
+    # -------------------------
+    df["plan_delivery_dt"] = pd.to_datetime(
+        df["plan_delivery_dt"]
+    ).dt.date
+
+    # -------------------------
+    # DATE FILTER (SAFE)
+    # -------------------------
+    df = df[
+        (df["plan_delivery_dt"] >= date_from) &
+        (df["plan_delivery_dt"] <= date_to)
+    ]
+
+    # -------------------------
+    # KEYWORD FILTER
+    # -------------------------
+    if keyword:
+        kw = keyword.lower()
+        df = df[
+            df["lot_no"].astype(str).str.lower().str.contains(kw) |
+            df["part_number"].astype(str).str.lower().str.contains(kw) |
+            df["model_level"].astype(str).str.lower().str.contains(kw)
+        ]
+
+    if df.empty:
+        st.warning("⚠️ ไม่พบข้อมูลตามเงื่อนไข")
         st.stop()
 
     # -------------------------
@@ -720,7 +743,7 @@ if mode == "Delivery Plan":
     st.divider()
 
     # -------------------------
-    # MAIN TABLE
+    # TABLE
     # -------------------------
     st.dataframe(
         df[
@@ -740,7 +763,7 @@ if mode == "Delivery Plan":
         height=520
     )
 
-    st.caption("📊 Source: v_plan_vs_actual (DATE-safe, production ready)")
+    st.caption("📊 Source: v_plan_vs_actual | client-safe (no supabase filter)")
 
 # =====================================================
 # 🧩 PART TRACKING (LOT / HARNESS)
@@ -844,6 +867,7 @@ elif mode == "Part Tracking":
             "📊 Source: rpc_part_tracking_lot_harness | "
             "ข้อมูลจริงจาก Lot Master + Kanban Delivery"
         )
+
 
 
 
